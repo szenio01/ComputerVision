@@ -18,13 +18,16 @@ def automatic_corner_detection(img, criteria, chessboard_size=(3, 3)):
     # If found, add object points, image points (after refining them)
     if ret:
         # This function refines corner locations to subpixel accuracy
-        img = cv2.drawChessboardCorners(gray, chessboard_size, corners, ret)
+
+        corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+
+        cv2.drawChessboardCorners(img, chessboard_size, corners, ret)
         cv2.namedWindow("output", cv2.WINDOW_NORMAL)
-        # cv2.resizeWindow("output", int(img.shape[1] / 4), int(img.shape[0] / 4))
+        cv2.resizeWindow("output", int(img.shape[1] / 4), int(img.shape[0] / 4))
         cv2.imshow('output', img)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
-        corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+
         return corners
     else:
         raise ValueError("Chessboard corners not found")

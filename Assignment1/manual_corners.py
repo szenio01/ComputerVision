@@ -30,17 +30,19 @@ def draw_chessboard_lines(img, points, chessboard_size):
         start_horiz = tl + (br - tl) * (i / chessboard_size[0])
         end_horiz = tr + (bl - tr) * (i / chessboard_size[0])
         cv2.line(img, tuple(start_horiz.astype(int)), tuple(end_horiz.astype(int)), (0, 255, 0), 2)
-
+        for p in np.linspace(start_horiz, end_horiz, chessboard_size[0]-2):
+            cv2.circle(img, tuple(p.astype(int)),  2, (0, 0, 255), 3)
 
     for j in range(chessboard_size[1] + 1):
         # Interpolate vertical line points
         start_vert = tl + (tr - tl) * (j / chessboard_size[1])
         end_vert = bl + (br - bl) * ((chessboard_size[1]-j) / chessboard_size[1])
-        print(start_vert,end_vert)
         cv2.line(img, tuple(start_vert.astype(int)), tuple(end_vert.astype(int)), (0, 255, 0), 2)
-        cv2.imshow('Image', img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+
+        # print(start_vert,end_vert)
+        # cv2.imshow('Image', img)
+        # cv2.waitKey(1)
+        # cv2.destroyAllWindows()
     return img
 def draw_circle(event, x, y, flags, param):
     global corner_points, img
