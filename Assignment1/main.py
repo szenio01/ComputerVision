@@ -21,13 +21,25 @@ def automatic_corner_detection(img, criteria, chessboard_size):
         corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
 
         cv2.drawChessboardCorners(img, chessboard_size, corners, ret)
-        cv2.namedWindow("output", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("output", int(img.shape[1] / 3), int(img.shape[0] / 3))
-        cv2.imshow('output', img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        # cv2.namedWindow("output", cv2.WINDOW_NORMAL)
+        # cv2.resizeWindow("output", int(img.shape[1] / 3), int(img.shape[0] / 3))
+        # cv2.imshow('output', img)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
 
     return ret, corners
+
+
+def automatic_corner_detection_live(img, criteria, chessboard_size):
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    ret, corners = cv2.findChessboardCorners(gray, chessboard_size, None)
+    if ret:
+        corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+
+        cv2.drawChessboardCorners(img, chessboard_size, corners, ret)
+
+    return ret, corners
+
 
 def undistort(gray_test_img, mtx, dist):
     h, w = gray_test_img.shape[:2]
@@ -49,6 +61,8 @@ def mean_error(objpoints, imgpoints, mtx, dist, rvecs, tvecs):
 
 def online_phase(test_img, objp, mtx, dst, dist, newcameramtx):
     ret, corners = automatic_corner_detection(test_img, criteria, chessboard)
+    if not ret:
+        print('Cant detect the corners of the test picture')
 
     ret, rvec, tvec = cv2.solvePnP(objp, corners, mtx, dist)
     # Define 3D coordinates for drawing axes
@@ -68,6 +82,23 @@ def online_phase(test_img, objp, mtx, dst, dist, newcameramtx):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
+
+def online_phase_live(frame, objp, mtx, dist):
+    ret, corners = automatic_corner_detection_live(frame, criteria, chessboard)
+    axis = np.float32([[0, 0, 0], [3, 0, 0], [0, 3, 0], [0, 0, -3]]).reshape(-1, 3)
+    # Define 3D coordinates for a cube
+    cube = np.float32([[0, 0, 0], [0, 2, 0], [2, 2, 0], [2, 0, 0],
+                       [0, 0, -2], [0, 2, -2], [2, 2, -2], [2, 0, -2]])
+    if ret:
+        ret, rvec, tvec = cv2.solvePnP(objp, corners, mtx, dist)
+        imgpts_axis, _ = cv2.projectPoints(axis, rvec, tvec, mtx, dist)
+        imgpts_cube, _ = cv2.projectPoints(cube, rvec, tvec, mtx, dist)
+        frame_with_objects = draw(frame, imgpts_axis, imgpts_cube)
+    # Display the frame with objects drawn
+        cv2.imshow('Webcam - Press Q to Quit', frame_with_objects)
+    else:
+        # Display the original frame if corner detection fails
+        cv2.imshow('Webcam - Press Q to Quit', frame)
 
 def draw(img, imgpts_axis, imgpts_cube):
     # Draw axes lines
@@ -102,7 +133,7 @@ def Run1():
     # Defining the world coordinates for 3D points
     objp = np.zeros((chessboard[0] * chessboard[1], 3), np.float32)
     objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2)
-    print("Run 1: Using all training samples")
+
     for filename in os.listdir(image_dir):
         if "test" not in filename:
             path = os.path.join(image_dir, filename)
@@ -139,23 +170,122 @@ def Run1():
         print("tvecs : \n")
         print(tvecs)
 
-    # Test image
-    test_img = cv2.imread('images/IMG-20240212-WA0011.jpg')
-    gray_test_img = cv2.cvtColor(test_img, cv2.COLOR_BGR2GRAY)
-
     # # Undistort test image
     # newcameramtx, dst = undistort(gray_test_img, mtx, dist)
 
     # Calculate mean error
     mean_error(objpoints, imgpoints, mtx, dist, rvecs, tvecs)
     # Online_phase
-    online_phase(test_img, objp, mtx, test_img, dist, mtx)
+    # online_phase(test_img, objp, mtx, test_img, dist, mtx)
     # online_phase(test_img, objp, mtx, dst, dist, newcameramtx)
+    return mtx, dist, objp
+
+
+def Run2():
+    objpoints = []
+    imgpoints = []
+    global img  # Ensure img is accessible globally
+    global corner_points  # Declare this if it's also used globally
+    corner_points = []  # Initialize corner_points list if not already initialized
+    # Defining the world coordinates for 3D points
+    objp = np.zeros((chessboard[0] * chessboard[1], 3), np.float32)
+    objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2)
+
+    for i in range(10,20):
+        path = os.path.join(image_dir, f'IMG-20240212-WA00{i}.jpg')
+        img = cv2.imread(path)
+        ret, corners = automatic_corner_detection(img, criteria, chessboard)
+        if ret:
+            if DEBUG:
+                print("Automatic corner detection was succesfull for image " + path)
+            objpoints.append(objp)
+            imgpoints.append(corners)
+        else:
+            print("FAIL to detect corners for image " + path)
+
+    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img.shape[1::-1], None, None)
+
+    # Calculate mean error
+    mean_error(objpoints, imgpoints, mtx, dist, rvecs, tvecs)
+    # Online_phase
+    # online_phase(test_img, objp, mtx, test_img, dist, mtx)
+    # online_phase(test_img, objp, mtx, dst, dist, newcameramtx)
+    return mtx, dist, objp
+
+
+def Run3():
+    objpoints = []
+    imgpoints = []
+    global img  # Ensure img is accessible globally
+    global corner_points  # Declare this if it's also used globally
+    corner_points = []  # Initialize corner_points list if not already initialized
+    # Defining the world coordinates for 3D points
+    objp = np.zeros((chessboard[0] * chessboard[1], 3), np.float32)
+    objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2)
+
+    for i in range(15,20):
+        path = os.path.join(image_dir, f'IMG-20240212-WA00{i}.jpg')
+        img = cv2.imread(path)
+        ret, corners = automatic_corner_detection(img, criteria, chessboard)
+        if ret:
+            if DEBUG:
+                print("Automatic corner detection was succesfull for image " + path)
+            objpoints.append(objp)
+            imgpoints.append(corners)
+        else:
+            print("FAIL to detect corners for image " + path)
+
+    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img.shape[1::-1], None, None)
+
+    # Calculate mean error
+    mean_error(objpoints, imgpoints, mtx, dist, rvecs, tvecs)
+    # Online_phase
+    # online_phase(test_img, objp, mtx, test_img, dist, mtx)
+    # online_phase(test_img, objp, mtx, dst, dist, newcameramtx)
+    return mtx, dist, objp
+
+
+def live_camera(mtx, dist, objp):
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Could not open video capture.")
+        return
+    while True:
+        ret, frame = cap.read()
+        processed_frame = frame.copy()
+        if not ret:
+            print("Failed to grab frame")
+            break
+
+
+        online_phase_live(processed_frame, objp, mtx, dist)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+        # After the loop release the cap object
+    cap.release()
+    cv2.destroyAllWindows()
 
 
 def main():
-    Run1()
+    test_img = cv2.imread('images/IMG-20240212-WA0009.jpg')
+    print("Run 1: Offline Phase")
+    mtx, dist, objp = Run1()
+    print("Run 1: Online Phase")
+    online_phase(test_img, objp, mtx, test_img, dist, mtx)
+    test_img = cv2.imread('images/IMG-20240212-WA0009.jpg')
+    print("\nRun 2: Offline Phase")
+    mtx, dist, objp = Run2()
+    print("Run 2: Online Phase")
+    online_phase(test_img, objp, mtx, test_img, dist, mtx)
+    test_img = cv2.imread('images/IMG-20240212-WA0009.jpg')
+    print("\nRun 3: Offline Phase")
+    mtx, dist, objp = Run3()
+    print("Run 3: Online Phase")
+    online_phase(test_img, objp, mtx, test_img, dist, mtx)
 
+    # CHOICES
+    live_camera(mtx, dist, objp)
 
 if __name__ == "__main__":
     main()
