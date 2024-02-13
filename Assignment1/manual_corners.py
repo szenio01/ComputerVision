@@ -30,7 +30,7 @@ def draw_chessboard_lines(img, points, chessboard_size):
         start_horiz = tl + (br - tl) * (i / chessboard_size[0])
         end_horiz = tr + (bl - tr) * (i / chessboard_size[0])
         cv2.line(img, tuple(start_horiz.astype(int)), tuple(end_horiz.astype(int)), (0, 255, 0), 2)
-        for p in np.linspace(start_horiz, end_horiz, chessboard_size[0] - 2):
+        for p in np.linspace(start_horiz, end_horiz, chessboard_size[1]+1):
             cv2.circle(img, tuple(p.astype(int)), 2, (0, 0, 255), 3)
 
     for j in range(chessboard_size[1] + 1):

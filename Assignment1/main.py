@@ -122,7 +122,7 @@ def Run1():
                 # Wait until the user has clicked four points
                 while len(corner_points) < 4:
                     cv2.waitKey(1)
-                img_with_chessboard = draw_chessboard_lines(img, corner_points,(10,7))
+                img_with_chessboard = draw_chessboard_lines(img, corner_points,chessboard_size=(7,10))
                 corner_points = []
                 # Show the result
                 cv2.imshow('Chessboard', img_with_chessboard)
@@ -143,13 +143,14 @@ def Run1():
     test_img = cv2.imread('images/IMG-20240212-WA0011.jpg')
     gray_test_img = cv2.cvtColor(test_img, cv2.COLOR_BGR2GRAY)
 
-    # Undistort test image
-    newcameramtx, dst = undistort(gray_test_img, mtx, dist)
+    # # Undistort test image
+    # newcameramtx, dst = undistort(gray_test_img, mtx, dist)
 
     # Calculate mean error
     mean_error(objpoints, imgpoints, mtx, dist, rvecs, tvecs)
     # Online_phase
-    online_phase(test_img, objp, mtx, dst, dist, newcameramtx)
+    online_phase(test_img, objp, mtx, test_img, dist, mtx)
+    # online_phase(test_img, objp, mtx, dst, dist, newcameramtx)
 
 
 def main():
