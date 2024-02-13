@@ -85,6 +85,13 @@ def draw(img, imgpts_axis, imgpts_cube):
     img = cv2.drawContours(img, [imgpts[4:]], -1, (0, 0, 255), 3)
 
     return img
+def draw_circle(event, x, y, flags, param):
+    global corner_points
+    # If the left mouse button was clicked, record the position and draw a circle there
+    if event == cv2.EVENT_LBUTTONDOWN:
+        corner_points.append((x, y))
+        cv2.circle(img, (x, y), 5, (0, 0, 255), -1)
+        cv2.imshow('Image', img)
 
 def Run1():
     objpoints = []
@@ -108,20 +115,19 @@ def Run1():
                 imgpoints.append(corners)
             else:
                 print("FAIL to detect corners for image " + path)
-                # cv2.namedWindow('Image')  # Create the window named 'Image'
-                # cv2.imshow('Image', img)  # Show the image in 'Image' window
-                # cv2.setMouseCallback('Image', draw_circle)  # Now set the mouse callback
-                #
-                # # Wait until the user has clicked four points
-                # while len(corner_points) < 4:
-                #     cv2.waitKey(1)
-                # cheboard_size = chessboard
-                # img_with_chessboard = draw_chessboard_lines(img, corner_points,chessboard )
-                # corner_points = []
-                # # Show the result
-                # cv2.imshow('Chessboard', img_with_chessboard)
-                # cv2.waitKey(0)
-                # cv2.destroyAllWindows()
+                cv2.namedWindow('Image')  # Create the window named 'Image'
+                cv2.imshow('Image', img)  # Show the image in 'Image' window
+                cv2.setMouseCallback('Image', draw_circle)  # Now set the mouse callback
+
+                # Wait until the user has clicked four points
+                while len(corner_points) < 4:
+                    cv2.waitKey(1)
+                img_with_chessboard = draw_chessboard_lines(img, corner_points,(10,7))
+                corner_points = []
+                # Show the result
+                cv2.imshow('Chessboard', img_with_chessboard)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img.shape[1::-1], None, None)
     if DEBUG:
         print("Camera matrix : \n")
