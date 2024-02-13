@@ -45,10 +45,8 @@ def draw_chessboard_lines(img, points, chessboard_size):
         # cv2.destroyAllWindows()
     return img
 
-
 def draw_circle(event, x, y, flags, param):
-    global corner_points, img
-
+    global corner_points,img
     # If the left mouse button was clicked, record the position and draw a circle there
     if event == cv2.EVENT_LBUTTONDOWN:
         corner_points.append((x, y))

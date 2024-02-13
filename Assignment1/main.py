@@ -23,73 +23,84 @@ def automatic_corner_detection(img, criteria, chessboard_size):
         cv2.drawChessboardCorners(img, chessboard_size, corners, ret)
         cv2.namedWindow("output", cv2.WINDOW_NORMAL)
         cv2.resizeWindow("output", int(img.shape[1] / 3), int(img.shape[0] / 3))
-        # cv2.imshow('output', img)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
+        cv2.imshow('output', img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
     return ret, corners
 
-
-def draw(img, corner, imgpts):
-    # Ensure the corner is in the correct format
-    corner = tuple(int(i) for i in corner.ravel())
-
-    # Draw X axis in red
-    x_axis_end_point = tuple(int(i) for i in imgpts[1].ravel())
-    img = cv2.line(img, corner, x_axis_end_point, (255, 0, 0), 5)
-
-    # Draw Y axis in green
-    y_axis_end_point = tuple(int(i) for i in imgpts[2].ravel())
-    img = cv2.line(img, corner, y_axis_end_point, (0, 255, 0), 5)
-
-    # Draw Z axis in blue
-    z_axis_end_point = tuple(int(i) for i in imgpts[3].ravel())
-    img = cv2.line(img, corner, z_axis_end_point, (0, 0, 255), 5)
-
-    return img
+def undistort(gray_test_img, mtx, dist):
+    h, w = gray_test_img.shape[:2]
+    newcameramtx, roi = cv2.getOptimalNewCameraMatrix(mtx, dist, (w, h), 1, (w, h))
+    # undistort
+    dst = cv2.undistort(gray_test_img, mtx, dist, None, newcameramtx)
+    dst = cv2.cvtColor(dst, cv2.COLOR_GRAY2BGR)
+    return newcameramtx, dst
 
 
-def drawAxisAndCube(ret, mtx, dist, objpoints, imgpoints, img_path):
-    # Load the image
-    img = cv2.imread(img_path)
-    objpoints = np.array(objpoints, dtype=np.float32)
-    imgpoints = np.array(imgpoints, dtype=np.float32)
-    objpoints = np.reshape(objpoints, (-1, 3))  # Reshape to ensure shape is (-1, 3)
-    imgpoints = np.reshape(imgpoints, (-1, 2))  # Reshape to ensure shape is (-1, 2)
+def mean_error(objpoints, imgpoints, mtx, dist, rvecs, tvecs):
+    mean_error = 0
+    for i in range(len(objpoints)):
+        imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
+        error = cv2.norm(imgpoints[i], imgpoints2, cv2.NORM_L2) / len(imgpoints2)
+        mean_error += error
+    print("total error: {}".format(mean_error / len(objpoints)))
 
-    # Solve for camera pose
-    ret, rvec, tvec = cv2.solvePnP(objpoints, imgpoints, mtx, dist)
 
-    # Define 3D points for axes and cube
+def online_phase(test_img, objp, mtx, dst, dist, newcameramtx):
+    ret, corners = automatic_corner_detection(test_img, criteria, chessboard)
+
+    ret, rvec, tvec = cv2.solvePnP(objp, corners, mtx, dist)
+    # Define 3D coordinates for drawing axes
+    # axis = np.float32([[3, 0, 0], [0, 3, 0], [0, 0, -3]]).reshape(-1, 3)
     axis = np.float32([[0, 0, 0], [3, 0, 0], [0, 3, 0], [0, 0, -3]]).reshape(-1, 3)
+    # Define 3D coordinates for a cube
     cube = np.float32([[0, 0, 0], [0, 2, 0], [2, 2, 0], [2, 0, 0],
                        [0, 0, -2], [0, 2, -2], [2, 2, -2], [2, 0, -2]])
+    # Project the 3D points onto the 2D plane
+    imgpts_axis, _ = cv2.projectPoints(axis, rvec, tvec, newcameramtx, dist)
+    imgpts_cube, _ = cv2.projectPoints(cube, rvec, tvec, newcameramtx, dist)
 
-    # Project 3D points to 2D
-    imgpts, jac = cv2.projectPoints(np.concatenate((axis, cube)), rvec, tvec, mtx, dist)
-
-    # Draw axes and cube
-    img_with_axes_and_cube = draw(img, imgpts[0].reshape(-1, 1, 2), imgpts[1:])
-
-    # Display the result
-    cv2.imshow('Image with 3D Axes and Cube', img_with_axes_and_cube)
+    # Draw the axes and cube
+    # Correct the function call
+    dst_with_objects = draw(dst, imgpts_axis, imgpts_cube)
+    cv2.imshow('Output with 3D Objects', dst_with_objects)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
 
+def draw(img, imgpts_axis, imgpts_cube):
+    # Draw axes lines
+    origin = tuple(imgpts_axis[0].ravel().astype(int))
+    for pt in imgpts_axis[1:]:
+        img = cv2.line(img, origin, tuple(pt.ravel().astype(int)), (255, 0, 0), 5)
+    # Draw cube
+    imgpts = np.int32(imgpts_cube).reshape(-1, 2)
+    # Draw bottom
+    img = cv2.drawContours(img, [imgpts[:4]], -1, (0, 255, 0), 3)
+    # Draw pillars
+    for i, j in zip(range(4), range(4, 8)):
+        img = cv2.line(img, tuple(imgpts[i]), tuple(imgpts[j]), (255, 0, 0), 3)
+    # Draw top
+    img = cv2.drawContours(img, [imgpts[4:]], -1, (0, 0, 255), 3)
+
+    return img
+
 def Run1():
     objpoints = []
     imgpoints = []
+    global img  # Ensure img is accessible globally
+    global corner_points  # Declare this if it's also used globally
+    corner_points = []  # Initialize corner_points list if not already initialized
     # Defining the world coordinates for 3D points
-    objp = np.zeros((1, chessboard[0] * chessboard[1], 3), np.float32)
-    objp[0, :, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2)
-
+    objp = np.zeros((chessboard[0] * chessboard[1], 3), np.float32)
+    objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2)
     print("Run 1: Using all training samples")
     for filename in os.listdir(image_dir):
         if "test" not in filename:
             path = os.path.join(image_dir, filename)
             img = cv2.imread(path)
-            ret, corners = automatic_corner_detection(img, criteria, chessboard_size=(9, 6))
+            ret, corners = automatic_corner_detection(img, criteria, chessboard)
             if ret:
                 if DEBUG:
                     print("Automatic corner detection was succesfull for image " + path)
@@ -97,19 +108,20 @@ def Run1():
                 imgpoints.append(corners)
             else:
                 print("FAIL to detect corners for image " + path)
-                cv2.imshow('Select 4 corners manually', img)
-                cv2.setMouseCallback('Image', draw_circle)
-
-                # Wait until the user has clicked four points
-                while len(corner_points) < 4:
-                    cv2.waitKey(1)
-                img_with_chessboard = draw_chessboard_lines(img, corner_points, chessboard)
-
-                # Show the result
-                cv2.imshow('Chessboard', img_with_chessboard)
-                cv2.waitKey(0)
-                cv2.destroyAllWindows()
-
+                # cv2.namedWindow('Image')  # Create the window named 'Image'
+                # cv2.imshow('Image', img)  # Show the image in 'Image' window
+                # cv2.setMouseCallback('Image', draw_circle)  # Now set the mouse callback
+                #
+                # # Wait until the user has clicked four points
+                # while len(corner_points) < 4:
+                #     cv2.waitKey(1)
+                # cheboard_size = chessboard
+                # img_with_chessboard = draw_chessboard_lines(img, corner_points,chessboard )
+                # corner_points = []
+                # # Show the result
+                # cv2.imshow('Chessboard', img_with_chessboard)
+                # cv2.waitKey(0)
+                # cv2.destroyAllWindows()
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img.shape[1::-1], None, None)
     if DEBUG:
         print("Camera matrix : \n")
@@ -121,8 +133,17 @@ def Run1():
         print("tvecs : \n")
         print(tvecs)
 
-    drawAxisAndCube(ret, mtx=mtx, dist=dist, objpoints=objpoints, imgpoints=imgpoints,
-                    img_path="images/IMG-20240212-WA0012.jpg")
+    # Test image
+    test_img = cv2.imread('images/IMG-20240212-WA0011.jpg')
+    gray_test_img = cv2.cvtColor(test_img, cv2.COLOR_BGR2GRAY)
+
+    # Undistort test image
+    newcameramtx, dst = undistort(gray_test_img, mtx, dist)
+
+    # Calculate mean error
+    mean_error(objpoints, imgpoints, mtx, dist, rvecs, tvecs)
+    # Online_phase
+    online_phase(test_img, objp, mtx, dst, dist, newcameramtx)
 
 
 def main():
