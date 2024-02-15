@@ -189,7 +189,6 @@ def Run1():
                     cv2.waitKey(1)
 
                 _, points = find_corners(img, corner_points, chessboard_size=chessboard)
-                print(points.shape)
                 img = cv2.imread(path)
                 img_with_chessboard = cv2.drawChessboardCorners(img, chessboard, points, True)
                 corner_points = []
@@ -197,6 +196,9 @@ def Run1():
                 cv2.imshow('Chessboard', img_with_chessboard)
                 cv2.waitKey(0)
                 cv2.destroyAllWindows()
+
+                objpoints.append(objp)
+                imgpoints.append(points)
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img.shape[1::-1], None, None)
 
     # # Undistort test image
