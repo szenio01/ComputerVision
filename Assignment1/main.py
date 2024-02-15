@@ -7,10 +7,40 @@ from matplotlib import pyplot as plt
 
 from Assignment1.manual_corners import *
 
+corner_points = []
 chessboard = (6, 9)
 image_dir = "images"
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 DEBUG = False
+# Define a function to order the points clockwise starting from the top left
+def order_points(pts):
+    rect = np.zeros((4, 2), dtype="float32")
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+    return rect
+
+
+def find_corners(img, points, chessboard_size):
+    tl, tr, br, bl = np.array(points)
+    print(tl, tr, br, bl)
+    all_points = []
+
+    for j in range(chessboard_size[1]):
+        # Interpolate vertical line points
+        start_vert = tl + (tr - tl) * (j / (chessboard_size[1]-1))
+        end_vert = bl + (br - bl) * ((chessboard_size[1]-1 - j) / (chessboard_size[1]-1))
+        cv2.line(img, tuple(start_vert.astype(int)), tuple(end_vert.astype(int)), (0, 255, 0), 2)
+        for p in np.linspace(start_vert, end_vert, chessboard_size[0]):
+            all_points.append([p])
+            cv2.circle(img, tuple(p.astype(int)), 2, (0, 0, 255), 3)
+
+    all_points_np = np.array(all_points, dtype=np.float32).reshape(-1, 1, 2)
+
+    return img, all_points_np
 
 
 def automatic_corner_detection(img, criteria, chessboard_size, showboard=False):
@@ -27,7 +57,6 @@ def automatic_corner_detection(img, criteria, chessboard_size, showboard=False):
             cv2.imshow('output', img)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
-
     return ret, corners
 
 
@@ -158,22 +187,17 @@ def Run1():
                 # Wait until the user has clicked four points
                 while len(corner_points) < 4:
                     cv2.waitKey(1)
-                img_with_chessboard = draw_chessboard_lines(img, corner_points, chessboard_size=chessboard)
+
+                _, points = find_corners(img, corner_points, chessboard_size=chessboard)
+                print(points.shape)
+                img = cv2.imread(path)
+                img_with_chessboard = cv2.drawChessboardCorners(img, chessboard, points, True)
                 corner_points = []
                 # Show the result
                 cv2.imshow('Chessboard', img_with_chessboard)
                 cv2.waitKey(0)
                 cv2.destroyAllWindows()
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img.shape[1::-1], None, None)
-    if DEBUG:
-        print("Camera matrix : \n")
-        print(mtx)
-        print("dist : \n")
-        print(dist)
-        print("rvecs : \n")
-        print(rvecs)
-        print("tvecs : \n")
-        print(tvecs)
 
     # # Undistort test image
     # newcameramtx, dst = undistort(gray_test_img, mtx, dist)
@@ -422,7 +446,7 @@ def live_camera(mtx, dist, objp):
 
         online_phase_live(processed_frame, objp, mtx, dist)
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        if cv2.waitKey(1) & 0xFF == ord(' '):
             break
         # After the loop release the cap object
     cap.release()
@@ -430,19 +454,22 @@ def live_camera(mtx, dist, objp):
 
 
 def main():
-    test_img = cv2.imread('images/IMG-20240212-WA0009.jpg')
+    test_img = cv2.imread('test_image.jpg')
     print("Run 1: Offline Phase")
     mtx, dist, objp = Run1()
+    print(mtx)
     print("Run 1: Online Phase")
     online_phase(test_img, objp, mtx, test_img, dist, mtx)
-    test_img = cv2.imread('images/IMG-20240212-WA0009.jpg')
+    test_img = cv2.imread('test_image.jpg')
     print("\nRun 2: Offline Phase")
     mtx, dist, objp = Run2()
+    print(mtx)
     print("Run 2: Online Phase")
     online_phase(test_img, objp, mtx, test_img, dist, mtx)
-    test_img = cv2.imread('images/IMG-20240212-WA0009.jpg')
+    test_img = cv2.imread('test_image.jpg')
     print("\nRun 3: Offline Phase")
     mtx, dist, objp = Run3()
+    print(mtx)
     print("Run 3: Online Phase")
     online_phase(test_img, objp, mtx, test_img, dist, mtx)
 
@@ -456,6 +483,7 @@ def main():
     mtx, dist, objp = RunCameraLocation()
     print("\nRun Without Low-Quality Images")
     mtx, dist, objp = RunQualityDetection()
+    test_img = cv2.imread('test_image.jpg')
     print("Run Without Low-Quality Images: Online Phase")
     online_phase(test_img, objp, mtx, test_img, dist, mtx)
 
