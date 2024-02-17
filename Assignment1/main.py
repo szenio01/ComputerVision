@@ -484,6 +484,15 @@ def RunEnhanced():
 
 
 def RunCameraLocation():
+    """
+        Runs camera location estimation based on chessboard calibration images.
+
+        Returns:
+            mtx (numpy.ndarray): Camera matrix.
+            dist (numpy.ndarray): Distortion coefficients.
+            objp (numpy.ndarray): World coordinates for 3D points.
+        """
+    objpoi
     objpoints = []
     imgpoints = []
     global img
@@ -533,12 +542,12 @@ def RunCameraLocation():
 
 def RunQualityDetection():
     """
-    Runs camera location estimation based on chessboard calibration images.
+    Runs quality detection on calibration of images and rejecting based on projection error threshold.
 
     Returns:
-        mtx (numpy.ndarray): Camera matrix.
-        dist (numpy.ndarray): Distortion coefficients.
-        objp (numpy.ndarray): World coordinates for 3D points.
+        mtx (numpy.ndarray): New Camera matrix.
+        dist (numpy.ndarray): New Distortion coefficients.
+        objp (numpy.ndarray):  New World coordinates for 3D points.
     """
     objpoints = []
     imgpoints = []
@@ -572,10 +581,17 @@ def RunQualityDetection():
         else:
             print(f"Image {i + 1} rejected due to high reprojection error: {error}")
 
+    # Filter objpoints and imgpoints to include only those from accepted images
+    filtered_objpoints = [objpoints[i] for i in accepted_indices]
+    filtered_imgpoints = [imgpoints[i] for i in accepted_indices]
+
     # Calculate mean error using only the accepted images
     mean_error = np.mean([cv2.norm(imgpoints[i], cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)[0],
                                    cv2.NORM_L2) / len(imgpoints[i]) for i in accepted_indices])
     print(f"Total mean error after rejection: {mean_error}")
+    # Recalibrate the camera using only the accepted images
+    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(filtered_objpoints, filtered_imgpoints, img.shape[1::-1], None,
+                                                       None)
 
     return mtx, dist, objp
 
