@@ -7,7 +7,9 @@ from matplotlib import pyplot as plt
 
 corner_points = []
 chessboard = (6, 9)
-image_dir = "images"
+automatic_image_dir = "images/automatic_training"
+manual_image_dir = "images/manual_training"
+testing_image_dir = "images/testing"
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 DEBUG = False
 
@@ -297,38 +299,48 @@ def Run1():
     objp = np.zeros((chessboard[0] * chessboard[1], 3), np.float32)
     objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2)
 
-    for filename in os.listdir(image_dir):
-        if "test" not in filename:
-            path = os.path.join(image_dir, filename)
+    for filename in os.listdir(automatic_image_dir):
+        path = os.path.join(automatic_image_dir, filename)
+        img = cv2.imread(path)
+        ret, corners = automatic_corner_detection(img, criteria, chessboard)
+        if ret:
+            if DEBUG:
+                print("Automatic corner detection was succesfull for image " + path)
+            objpoints.append(objp)
+            imgpoints.append(corners)
+
+    for filename in os.listdir(manual_image_dir):
+        path = os.path.join(automatic_image_dir, filename)
+        img = cv2.imread(path)
+        ret, corners = automatic_corner_detection(img, criteria, chessboard)
+        if ret:
+            if DEBUG:
+                print("Automatic corner detection was succesfull for image " + path)
+            objpoints.append(objp)
+            imgpoints.append(corners)
+        else:
+            print("FAIL to automatically detect corners for image " + path)
+            cv2.namedWindow('Image')
+            cv2.imshow('Image', img)
+            cv2.setMouseCallback('Image', draw_circle)
+
+            # Wait until the user has clicked four points
+            while len(corner_points) < 4:
+                cv2.waitKey(1)
+
+            _, points = find_corners(img, corner_points, chessboard_size=chessboard)
             img = cv2.imread(path)
-            ret, corners = automatic_corner_detection(img, criteria, chessboard)
-            if ret:
-                if DEBUG:
-                    print("Automatic corner detection was succesfull for image " + path)
-                objpoints.append(objp)
-                imgpoints.append(corners)
-            else:
-                print("FAIL to detect corners for image " + path)
-                cv2.namedWindow('Image')
-                cv2.imshow('Image', img)
-                cv2.setMouseCallback('Image', draw_circle)
+            img_with_chessboard = cv2.drawChessboardCorners(img, chessboard, points, True)
+            corner_points = []
 
-                # Wait until the user has clicked four points
-                while len(corner_points) < 4:
-                    cv2.waitKey(1)
+            # Show the result
+            cv2.imshow('Chessboard', img_with_chessboard)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
 
-                _, points = find_corners(img, corner_points, chessboard_size=chessboard)
-                img = cv2.imread(path)
-                img_with_chessboard = cv2.drawChessboardCorners(img, chessboard, points, True)
-                corner_points = []
+            objpoints.append(objp)
+            imgpoints.append(points)
 
-                # Show the result
-                cv2.imshow('Chessboard', img_with_chessboard)
-                cv2.waitKey(0)
-                cv2.destroyAllWindows()
-
-                objpoints.append(objp)
-                imgpoints.append(points)
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img.shape[1::-1], None, None)
 
     # Calculate mean error
@@ -356,17 +368,21 @@ def Run2():
     objp = np.zeros((chessboard[0] * chessboard[1], 3), np.float32)
     objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2)
 
-    for i in range(10, 20):
-        path = os.path.join(image_dir, f'IMG-20240212-WA00{i}.jpg')
+    images = os.listdir(automatic_image_dir)  # List all files in the directory
+    images.sort()  # Sort the files to ensure consistent order
+
+    # Use only the first 10 images
+    for image_name in images[:10]:
+        path = os.path.join(automatic_image_dir, image_name)
         img = cv2.imread(path)
         ret, corners = automatic_corner_detection(img, criteria, chessboard)
         if ret:
             if DEBUG:
-                print("Automatic corner detection was succesfull for image " + path)
+                print(f"Automatic corner detection was successful for image {path}")
             objpoints.append(objp)
             imgpoints.append(corners)
         else:
-            print("FAIL to detect corners for image " + path)
+            print(f"FAIL to detect corners for image {path}")
 
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img.shape[1::-1], None, None)
 
@@ -395,17 +411,21 @@ def Run3():
     objp = np.zeros((chessboard[0] * chessboard[1], 3), np.float32)
     objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2)
 
-    for i in range(15, 20):
-        path = os.path.join(image_dir, f'IMG-20240212-WA00{i}.jpg')
+    images = os.listdir(automatic_image_dir)  # List all files in the directory
+    images.sort()  # Sort the files to ensure consistent order
+
+    # Use only the first 5 images
+    for image_name in images[:5]:
+        path = os.path.join(automatic_image_dir, image_name)
         img = cv2.imread(path)
         ret, corners = automatic_corner_detection(img, criteria, chessboard)
         if ret:
             if DEBUG:
-                print("Automatic corner detection was succesfull for image " + path)
+                print(f"Automatic corner detection was successful for image {path}")
             objpoints.append(objp)
             imgpoints.append(corners)
         else:
-            print("FAIL to detect corners for image " + path)
+            print(f"FAIL to detect corners for image {path}")
 
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img.shape[1::-1], None, None)
 
@@ -417,7 +437,7 @@ def Run3():
 
 def RunEnhanced():
     """
-        Runs an enhanced calibration process.
+        Runs an enhanced calibration process.It is not used in this assignment.
 
         Returns:
             mtx (numpy.ndarray): Camera matrix.
@@ -435,7 +455,7 @@ def RunEnhanced():
     objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2)
 
     for i in range(10, 11):
-        path = os.path.join(image_dir, f'IMG-20240212-WA0033.jpg')
+        path = os.path.join(automatic_image_dir, f'IMG-20240212-WA0033.jpg')
         img = cv2.imread(path)
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -492,7 +512,6 @@ def RunCameraLocation():
             dist (numpy.ndarray): Distortion coefficients.
             objp (numpy.ndarray): World coordinates for 3D points.
         """
-    objpoi
     objpoints = []
     imgpoints = []
     global img
@@ -502,17 +521,21 @@ def RunCameraLocation():
     objp = np.zeros((chessboard[0] * chessboard[1], 3), np.float32)
     objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2)
 
-    for i in range(10, 20):
-        path = os.path.join(image_dir, f'IMG-20240212-WA00{i}.jpg')
+    images = os.listdir(automatic_image_dir)  # List all files in the directory
+    images.sort()  # Sort the files to ensure consistent order
+
+    # Use only the first 10 images
+    for image_name in images[:10]:
+        path = os.path.join(automatic_image_dir, image_name)
         img = cv2.imread(path)
         ret, corners = automatic_corner_detection(img, criteria, chessboard)
         if ret:
             if DEBUG:
-                print("Automatic corner detection was succesfull for image " + path)
+                print(f"Automatic corner detection was successful for image {path}")
             objpoints.append(objp)
             imgpoints.append(corners)
         else:
-            print("FAIL to detect corners for image " + path)
+            print(f"FAIL to detect corners for image {path}")
 
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img.shape[1::-1], None, None)
     rotation_matrices = [cv2.Rodrigues(rvec)[0] for rvec in rvecs]
@@ -557,11 +580,17 @@ def RunQualityDetection():
     objp = np.zeros((chessboard[0] * chessboard[1], 3), np.float32)
     objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2)
 
-    for i in range(10, 20):
-        path = os.path.join(image_dir, f'IMG-20240212-WA00{i}.jpg')
+    images = os.listdir(automatic_image_dir)  # List all files in the directory
+    images.sort()  # Sort the files to ensure consistent order
+
+    # Use only the first 20 images
+    for image_name in images[:20]:
+        path = os.path.join(automatic_image_dir, image_name)
         img = cv2.imread(path)
         ret, corners = automatic_corner_detection(img, criteria, chessboard)
         if ret:
+            if DEBUG:
+                print(f"Automatic corner detection was successful for image {path}")
             objpoints.append(objp)
             imgpoints.append(corners)
         else:
@@ -626,19 +655,19 @@ def live_camera(mtx, dist, objp):
 
 
 def main():
-    test_img = cv2.imread('test_image.jpg')
+    test_img = cv2.imread(os.path.join(testing_image_dir, sorted(os.listdir(testing_image_dir))[0]))
     print("Run 1: Offline Phase")
     mtx, dist, objp = Run1()
     print(mtx)
     print("Run 1: Online Phase")
     online_phase(test_img, objp, mtx, dist)
-    test_img = cv2.imread('test_image.jpg')
+    test_img = cv2.imread(os.path.join(testing_image_dir, sorted(os.listdir(testing_image_dir))[0]))
     print("\nRun 2: Offline Phase")
     mtx, dist, objp = Run2()
     print(mtx)
     print("Run 2: Online Phase")
     online_phase(test_img, objp, mtx,dist)
-    test_img = cv2.imread('test_image.jpg')
+    test_img = cv2.imread(os.path.join(testing_image_dir, sorted(os.listdir(testing_image_dir))[0]))
     print("\nRun 3: Offline Phase")
     mtx, dist, objp = Run3()
     print(mtx)
@@ -651,7 +680,7 @@ def main():
     mtx, dist, objp = RunCameraLocation()
     print("\nRun Without Low-Quality Images")
     mtx, dist, objp = RunQualityDetection()
-    test_img = cv2.imread('test_image.jpg')
+    test_img = cv2.imread(os.path.join(testing_image_dir, sorted(os.listdir(testing_image_dir))[0]))
     print("Run Without Low-Quality Images: Online Phase")
     online_phase(test_img, objp, mtx, dist)
 
