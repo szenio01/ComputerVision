@@ -310,7 +310,7 @@ def Run1():
             imgpoints.append(corners)
 
     for filename in os.listdir(manual_image_dir):
-        path = os.path.join(automatic_image_dir, filename)
+        path = os.path.join(manual_image_dir, filename)
         img = cv2.imread(path)
         ret, corners = automatic_corner_detection(img, criteria, chessboard)
         if ret:
