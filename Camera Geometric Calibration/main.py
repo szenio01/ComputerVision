@@ -241,7 +241,9 @@ def draw(img, imgpts_axis, imgpts_cube):
     """
     # Draw axes lines
     origin = tuple(imgpts_axis[0].ravel().astype(int))
+
     for pt in imgpts_axis[1:]:
+
         img = cv2.line(img, origin, tuple(pt.ravel().astype(int)), (255, 0, 0), 5)
     # Draw cube
     imgpts = np.int32(imgpts_cube).reshape(-1, 2)
