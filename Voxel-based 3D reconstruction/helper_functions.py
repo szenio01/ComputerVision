@@ -2,6 +2,28 @@ import cv2
 import numpy as np
 import xml.etree.ElementTree as ET
 
+def mean_error(objpoints, imgpoints, mtx, dist, rvecs, tvecs):
+    """
+      Computes the mean reprojection error of a camera calibration.
+
+      Args:
+          objpoints (list): List of 3D object points.
+          imgpoints (list): List of 2D image points.
+          mtx (numpy.ndarray): Camera matrix.
+          dist (numpy.ndarray): Distortion coefficients.
+          rvecs (list): List of rotation vectors.
+          tvecs (list): List of translation vectors.
+
+      Returns:
+          None
+    """
+    mean_error = 0
+    for i in range(len(objpoints)):
+        imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
+        error = cv2.norm(imgpoints[i], imgpoints2, cv2.NORM_L2) / len(imgpoints2)
+        mean_error += error
+    print("total error: {}".format(mean_error / len(objpoints)))
+
 
 def write_camera_configs(directory, calibration_parameters, extrinsic_parameters):
     for cam_id, intrinsic_params in calibration_parameters.items():
@@ -39,9 +61,9 @@ def write_camera_configs(directory, calibration_parameters, extrinsic_parameters
 
 def read_all_camera_configs(directory):
     all_camera_configs = {}
-
     for cam_id in range(1, 5):  # Adjust the range based on the number of cameras
         config_path = f"{directory}/cam{cam_id}/camera_properties.xml"
+        print(config_path)
         try:
             tree = ET.parse(config_path)
             root = tree.getroot()
@@ -103,7 +125,35 @@ def automatic_corner_detection(img, criteria, chessboard_size, showboard=False):
             cv2.destroyAllWindows()
     return ret, corners
 
+def draw(img, imgpts_axis, imgpts_cube):
+    """
+       Draws 3D axes and a cube on the input image.
 
+       Args:
+           img (numpy.ndarray): Input image.
+           imgpts_axis (numpy.ndarray): Image points of the 3D axes.
+           imgpts_cube (numpy.ndarray): Image points of the cube.
+
+       Returns:
+           numpy.ndarray: Image with 3D axes and cube drawn.
+    """
+    # Draw axes lines
+    origin = tuple(imgpts_axis[0].ravel().astype(int))
+    print(origin)
+    for pt in imgpts_axis[1:]:
+        print(pt)
+        img = cv2.line(img, origin, tuple(pt.ravel().astype(int)), (255, 0, 0), 2)
+    # # Draw cube
+    # imgpts = np.int32(imgpts_cube).reshape(-1, 2)
+    # # Draw bottom
+    # img = cv2.drawContours(img, [imgpts[:4]], -1, (0, 255, 0), 3)
+    # # Draw pillars
+    # for i, j in zip(range(4), range(4, 8)):
+    #     img = cv2.line(img, tuple(imgpts[i]), tuple(imgpts[j]), (255, 0, 0), 3)
+    # # Draw top
+    # img = cv2.drawContours(img, [imgpts[4:]], -1, (0, 0, 255), 3)
+
+    return img
 
 def find_corners(img, points, chessboard_size):
     """
