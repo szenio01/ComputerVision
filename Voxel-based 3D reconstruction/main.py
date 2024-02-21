@@ -141,5 +141,6 @@ def main():
     # extrinsic_parameters = calculate_extrinsics( calibration_parameters)
     # write_camera_configs('data', calibration_parameters, extrinsic_parameters)
     all_camera_configs=read_all_camera_configs('data')
+    print(all_camera_configs)
 if __name__ == "__main__":
     main()
