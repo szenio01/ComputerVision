@@ -2,18 +2,15 @@ import cv2
 import numpy as np
 from helper_functions import *
 import matplotlib as ptl
-# # Now you can import your function from main.py
-# from Camera Geometric Calibration.main1 import *
+
 # Define the chess board size and square size
 chessboard_size = (6, 8)
 square_size = 115.0
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 corner_points = []
-# Prepare object points like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
 objp = np.zeros((chessboard_size[1] * chessboard_size[0], 3), np.float32)
 objp[:, :2] = np.mgrid[0:chessboard_size[0], 0:chessboard_size[1]].T.reshape(-1, 2)
 objp *= square_size
-# chessboard = (6, 8)
 
 
 def online_phase(test_img, objp, mtx, dist,rvec,tvec):
@@ -378,6 +375,28 @@ def background_subtraction():
         background_model = cv2.imread(background_model_path)
         background_model_hsv = cv2.cvtColor(background_model, cv2.COLOR_BGR2HSV)
         subtraction(video_path, background_model_hsv)
+
+def create_lookup_table(voxel_grid, all_camera_configs):
+    lookup_table = {}
+
+    for voxel in voxel_grid:
+        voxel_3D = np.array([[voxel.x, voxel.y, voxel.z]], dtype=np.float32)  # Voxel's 3D coordinates
+
+        for cam_id, config in all_camera_configs.items():
+            rvec = config['rvecs']
+            tvec = config['tvecs']
+            mtx = config['mtx']
+            dist = config['dist']
+
+            # Project the 3D voxel coordinates to 2D image coordinates
+            projected_2D, _ = cv2.projectPoints(voxel_3D, rvec, tvec, mtx, dist)
+
+            # Store the projected 2D coordinates in the lookup table
+            if voxel not in lookup_table:
+                lookup_table[voxel] = {}
+            lookup_table[voxel][cam_id] = projected_2D[0][0]  # First point, first coordinate pair
+
+    return lookup_table
 
 
 def main():
