@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+from matplotlib import pyplot as plt
+
 from helper_functions import *
 import matplotlib as ptl
 from scipy.ndimage import binary_opening, binary_closing
@@ -360,9 +362,9 @@ def subtraction(video_path, background_model_hsv):
         foreground_mask = apply_morphological_ops(foreground_mask)
 
         #Display the result
-        cv2.imshow('Foreground Mask', foreground_mask)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        # cv2.imshow('Foreground Mask', foreground_mask)
+        # if cv2.waitKey(1) & 0xFF == ord('q'):
+        #     break
     cap.release()
     cv2.destroyAllWindows()
     return foreground_mask
@@ -445,24 +447,24 @@ def create_lut(voxels):
     return lut
 
 
+# def check_voxel_visibility(voxel_index, lut, silhouette_masks):
+#     visible_in_any_camera = False
+#     for cam_id, points_2d in lut.items():
+#         point = points_2d[voxel_index]
+#         x, y = int(point[0]), int(point[1])
+#         # Check if the point is within the image bounds and corresponds to the foreground
+#         if 0 <= x < silhouette_masks[cam_id].shape[1] and 0 <= y < silhouette_masks[cam_id].shape[0]:
+#             if silhouette_masks[cam_id][y, x] == 255:
+#                 visible_in_any_camera = True
+#                 break  # No need to check other cameras if visible in one
+#         if visible_in_any_camera:
+#             break
+#
+#     return visible_in_any_camera
+
+
 def check_voxel_visibility(voxel_index, lut, silhouette_masks):
-    visible_in_any_camera = False
-    for cam_id, points_2d in lut.items():
-        for point in points_2d[voxel_index]:
-            x, y = int(point[0]), int(point[1])
-            # Check if the point is within the image bounds and corresponds to the foreground
-            if 0 <= x < silhouette_masks[cam_id].shape[1] and 0 <= y < silhouette_masks[cam_id].shape[0]:
-                if silhouette_masks[cam_id][y, x] == 255:
-                    visible_in_any_camera = True
-                    break  # No need to check other cameras if visible in one
-        if visible_in_any_camera:
-            break
-
-    return visible_in_any_camera
-
-
-def check_voxel_visibility(voxel_index, lut, silhouette_masks):
-    visible_in_any_camera = False
+    visible_in_every_camera = True
     for cam_id, points_2d in lut.items():
         # Adjust cam_id for 0-based indexing when accessing the silhouette_masks array
         adjusted_cam_id = cam_id - 1  # Adjusting cam_id to 0-based index
@@ -472,13 +474,15 @@ def check_voxel_visibility(voxel_index, lut, silhouette_masks):
         # Ensure the adjusted_cam_id is used for indexing silhouette_masks
         if 0 <= x < silhouette_masks[adjusted_cam_id].shape[1] and 0 <= y < silhouette_masks[adjusted_cam_id].shape[0]:
             if silhouette_masks[adjusted_cam_id][y, x] == 255:
-                visible_in_any_camera = True
-                break  # No need to check other cameras if visible in one
+                pass
+                # break  # No need to check other cameras if visible in one
+            else:
+                return False
+        #
+        # if visible_in_any_camera:
+        #     break
 
-        if visible_in_any_camera:
-            break
-
-    return visible_in_any_camera
+    return visible_in_every_camera
 
 
 def check_visibility_and_reconstruct(silhouette_masks):
@@ -487,23 +491,40 @@ def check_visibility_and_reconstruct(silhouette_masks):
     With 50 intervals along each axis, we have 50×50×50 = 125,000
     50×50×50=125,000 voxels in total. Each row in voxels is a 3D point [x, y, z] representing the center of a voxel.
     """
-    x_range = np.linspace(-100, 100, num=50)
-    y_range = np.linspace(-100, 100, num=50)
-    z_range = np.linspace(0, 200, num=50)
+    x_range = np.linspace(-1000, 1000, num=100)
+    y_range = np.linspace(-1000, 1000, num=100)
+    z_range = np.linspace(0, 2000, num=100)
     voxels = np.array(np.meshgrid(x_range, y_range, z_range)).T.reshape(-1, 3)
+    print(x_range)
+    print(voxels.shape)
     lookup_table = create_lut(voxels)
-
+    visible_points=[]
     # Initialization of the 3D reconstruction space
-    reconstruction_space = np.zeros((50, 50, 50), dtype=np.bool)
+    reconstruction_space = np.zeros((100, 100, 100), dtype=bool)
     # Assuming silhouette_masks is defined
     for voxel_index in range(len(voxels)):
         x, y, z = voxels[voxel_index]  # Get voxel coordinates (you may need to adjust the mapping based on your grid definition)
+
         if check_voxel_visibility(voxel_index, lookup_table, silhouette_masks):
             # This voxel is part of the reconstruction
-            pass
-    #         reconstruction_space[x, y, z] = True
-    #
-    #         pass  # Add your logic here to handle visible voxels
+            # print("hello")
+            reconstruction_space[int((int(x)+1000)/20), int((int(y)+1000)/20), int(int(z)/20)] = True
+            visible_points.append([x, y, z])  # Add visible voxel center to the list
+
+    # Convert the list of visible points to a NumPy array for easier plotting
+    visible_points = np.array(visible_points)
+
+    # Create a 3D plot of the visible points
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    ax.scatter(visible_points[:, 0], visible_points[:, 1], visible_points[:, 2], c='r', marker='o')
+    ax.set_xlabel('X Label')
+    ax.set_ylabel('Y Label')
+    ax.set_zlabel('Z Label')
+    plt.title('3D Visualization of Visible Voxels')
+    plt.show()
+
     # # Adjust the structure element as needed
     # structure_element = np.ones((3, 3, 3), dtype=np.bool)
     #
@@ -521,9 +542,9 @@ def main():
     # extrinsic_parameters = {}
     # calibration_parameters = calibrate_cameras()
     # extrinsic_parameters = calculate_extrinsics(calibration_parameters)
-
+    #
     # write_camera_configs('data', calibration_parameters, extrinsic_parameters)
-    all_camera_configs=read_all_camera_configs('data')
+    # all_camera_configs=read_all_camera_configs('data')
 
     # Task 2. Background subtraction
     # 1. Create a background image
@@ -532,10 +553,10 @@ def main():
     # 2. Create a background image
     foreground_masks = background_subtraction()
     foreground_masks = np.array(foreground_masks)
-    print(foreground_masks.shape)
     # cv2.imshow('Background Model', forground_masks[0])
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()
+
     # 3. Create a background image
     check_visibility_and_reconstruct(foreground_masks)
 
