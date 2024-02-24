@@ -2,7 +2,8 @@ import cv2
 import numpy as np
 from helper_functions import *
 import matplotlib as ptl
-
+from scipy.ndimage import binary_opening, binary_closing
+from skimage.measure import marching_cubes
 # Define the chess board size and square size
 chessboard_size = (6, 8)
 square_size = 115.0
@@ -11,7 +12,7 @@ corner_points = []
 objp = np.zeros((chessboard_size[1] * chessboard_size[0], 3), np.float32)
 objp[:, :2] = np.mgrid[0:chessboard_size[0], 0:chessboard_size[1]].T.reshape(-1, 2)
 objp *= square_size
-
+directory = "data"
 
 def online_phase(test_img, objp, mtx, dist,rvec,tvec):
     """
@@ -297,9 +298,9 @@ def apply_morphological_ops(foreground_mask):
     keypoints = detector.detect(foreground_mask)
 
     # Draw detected blobs as red circles (adjust drawing parameters as needed)
-    im_with_keypoints = cv2.drawKeypoints(foreground_mask, keypoints, np.array([]), (0, 0, 255),
-                                          cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-    return im_with_keypoints
+    # im_with_keypoints = cv2.drawKeypoints(foreground_mask, keypoints, np.array([]), (0, 0, 255),
+    #                                       cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+    return foreground_mask
 
 
 def generate_mask(diff, th_hue, th_sat, th_val):
@@ -364,9 +365,11 @@ def subtraction(video_path, background_model_hsv):
             break
     cap.release()
     cv2.destroyAllWindows()
+    return foreground_mask
 
 
 def background_subtraction():
+    forground_masks = []
     for cam_id in range(1, 5):
         background_model_path = f'data/cam{cam_id}/background_model.jpg'
         video_path = f'data/cam{cam_id}/video.avi'
@@ -374,29 +377,143 @@ def background_subtraction():
         # Read the background model and convert it to HSV
         background_model = cv2.imread(background_model_path)
         background_model_hsv = cv2.cvtColor(background_model, cv2.COLOR_BGR2HSV)
-        subtraction(video_path, background_model_hsv)
+        forground_masks.append(subtraction(video_path, background_model_hsv))
+    return forground_masks
 
-def create_lookup_table(voxel_grid, all_camera_configs):
-    lookup_table = {}
+# def create_lookup_table(voxel_grid, all_camera_configs):
+#     lookup_table = {}
+#
+#     for voxel in voxel_grid:
+#         voxel_3D = np.array([[voxel.x, voxel.y, voxel.z]], dtype=np.float32)  # Voxel's 3D coordinates
+#
+#         for cam_id, config in all_camera_configs.items():
+#             rvec = config['rvecs']
+#             tvec = config['tvecs']
+#             mtx = config['mtx']
+#             dist = config['dist']
+#
+#             # Project the 3D voxel coordinates to 2D image coordinates
+#             projected_2D, _ = cv2.projectPoints(voxel_3D, rvec, tvec, mtx, dist)
+#
+#             # Store the projected 2D coordinates in the lookup table
+#             if voxel not in lookup_table:
+#                 lookup_table[voxel] = {}
+#             lookup_table[voxel][cam_id] = projected_2D[0][0]  # First point, first coordinate pair
+#
+#     return lookup_table
 
-    for voxel in voxel_grid:
-        voxel_3D = np.array([[voxel.x, voxel.y, voxel.z]], dtype=np.float32)  # Voxel's 3D coordinates
 
-        for cam_id, config in all_camera_configs.items():
-            rvec = config['rvecs']
-            tvec = config['tvecs']
-            mtx = config['mtx']
-            dist = config['dist']
+def parse_camera_config_from_file(config_path):
+    # Load and parse the XML file
+    tree = ET.parse(config_path)
+    root = tree.getroot()
 
-            # Project the 3D voxel coordinates to 2D image coordinates
-            projected_2D, _ = cv2.projectPoints(voxel_3D, rvec, tvec, mtx, dist)
+    # Extract and parse the camera matrix
+    camera_matrix_rows = root.find('Intrinsics/CameraMatrix').findall('Row')
+    camera_matrix = np.array([[float(num) for num in row.text.split()] for row in camera_matrix_rows])
 
-            # Store the projected 2D coordinates in the lookup table
-            if voxel not in lookup_table:
-                lookup_table[voxel] = {}
-            lookup_table[voxel][cam_id] = projected_2D[0][0]  # First point, first coordinate pair
+    # Extract and parse the distortion coefficients
+    distortion_coeffs_row = root.find('Intrinsics/DistortionCoefficients/Row').text
+    distortion_coeffs = np.array([float(num) for num in distortion_coeffs_row.split()])
 
-    return lookup_table
+    # Extract and parse the rotation vector
+    rotation_vector_row = root.find('Extrinsics/RotationVectors/Vector').text
+    rotation_vector = np.array([float(num) for num in rotation_vector_row.split()])
+
+    # Extract and parse the translation vector
+    translation_vector_row = root.find('Extrinsics/TranslationVectors/Vector').text
+    translation_vector = np.array([float(num) for num in translation_vector_row.split()])
+
+    return camera_matrix, distortion_coeffs, rotation_vector, translation_vector
+
+
+def project_to_2d(points_3d, camera_matrix, dist_coeffs, rvec, tvec):
+    points_2d, _ = cv2.projectPoints(points_3d, rvec, tvec, camera_matrix, dist_coeffs)
+    return points_2d.reshape(-1, 2)
+
+
+def create_lut(voxels):
+    lut = {}
+    for cam_id in range(1, 5):  # Assuming 4 cameras
+        config_path = f"{directory}/cam{cam_id}/camera_properties.xml"
+        camera_matrix, dist_coeffs, rvec, tvec = parse_camera_config_from_file(config_path)
+
+        # Project all voxels to 2D for this camera
+        points_2d = project_to_2d(voxels, camera_matrix, dist_coeffs, rvec, tvec)
+        lut[cam_id] = points_2d  # Store the 2D points in the LUT
+
+    return lut
+
+
+def check_voxel_visibility(voxel_index, lut, silhouette_masks):
+    visible_in_any_camera = False
+    for cam_id, points_2d in lut.items():
+        for point in points_2d[voxel_index]:
+            x, y = int(point[0]), int(point[1])
+            # Check if the point is within the image bounds and corresponds to the foreground
+            if 0 <= x < silhouette_masks[cam_id].shape[1] and 0 <= y < silhouette_masks[cam_id].shape[0]:
+                if silhouette_masks[cam_id][y, x] == 255:
+                    visible_in_any_camera = True
+                    break  # No need to check other cameras if visible in one
+        if visible_in_any_camera:
+            break
+
+    return visible_in_any_camera
+
+
+def check_voxel_visibility(voxel_index, lut, silhouette_masks):
+    visible_in_any_camera = False
+    for cam_id, points_2d in lut.items():
+        # Adjust cam_id for 0-based indexing when accessing the silhouette_masks array
+        adjusted_cam_id = cam_id - 1  # Adjusting cam_id to 0-based index
+        point = points_2d[voxel_index]
+        x, y = int(point[0]), int(point[1])
+
+        # Ensure the adjusted_cam_id is used for indexing silhouette_masks
+        if 0 <= x < silhouette_masks[adjusted_cam_id].shape[1] and 0 <= y < silhouette_masks[adjusted_cam_id].shape[0]:
+            if silhouette_masks[adjusted_cam_id][y, x] == 255:
+                visible_in_any_camera = True
+                break  # No need to check other cameras if visible in one
+
+        if visible_in_any_camera:
+            break
+
+    return visible_in_any_camera
+
+
+def check_visibility_and_reconstruct(silhouette_masks):
+    # Define the 3D grid (example)
+    """""
+    With 50 intervals along each axis, we have 50×50×50 = 125,000
+    50×50×50=125,000 voxels in total. Each row in voxels is a 3D point [x, y, z] representing the center of a voxel.
+    """
+    x_range = np.linspace(-100, 100, num=50)
+    y_range = np.linspace(-100, 100, num=50)
+    z_range = np.linspace(0, 200, num=50)
+    voxels = np.array(np.meshgrid(x_range, y_range, z_range)).T.reshape(-1, 3)
+    lookup_table = create_lut(voxels)
+
+    # Initialization of the 3D reconstruction space
+    reconstruction_space = np.zeros((50, 50, 50), dtype=np.bool)
+    # Assuming silhouette_masks is defined
+    for voxel_index in range(len(voxels)):
+        x, y, z = voxels[voxel_index]  # Get voxel coordinates (you may need to adjust the mapping based on your grid definition)
+        if check_voxel_visibility(voxel_index, lookup_table, silhouette_masks):
+            # This voxel is part of the reconstruction
+            pass
+    #         reconstruction_space[x, y, z] = True
+    #
+    #         pass  # Add your logic here to handle visible voxels
+    # # Adjust the structure element as needed
+    # structure_element = np.ones((3, 3, 3), dtype=np.bool)
+    #
+    # # Remove noise
+    # reconstruction_cleaned = binary_opening(reconstruction_space, structure=structure_element)
+    #
+    # # Fill small holes
+    # reconstruction_final = binary_closing(reconstruction_cleaned, structure=structure_element)
+    # # Apply Marching Cubes to get the vertices and faces
+    # vertices, faces, _, _ = marching_cubes(reconstruction_final, level=0)
 
 
 def main():
@@ -413,7 +530,14 @@ def main():
     create_background_models()
 
     # 2. Create a background image
-    background_subtraction()
+    foreground_masks = background_subtraction()
+    foreground_masks = np.array(foreground_masks)
+    print(foreground_masks.shape)
+    # cv2.imshow('Background Model', forground_masks[0])
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+    # 3. Create a background image
+    check_visibility_and_reconstruct(foreground_masks)
 
 
     #Find Best treshholds
