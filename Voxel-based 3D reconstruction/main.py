@@ -293,16 +293,71 @@ def apply_morphological_ops(foreground_mask):
     kernel = np.ones((3, 3), np.uint8)
     foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_OPEN, kernel)
     foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_CLOSE, kernel)
-    params = cv2.SimpleBlobDetector_Params()
-    # Adjust parameters according to your needs
-    detector = cv2.SimpleBlobDetector_create(params)
-    # Detect blobs
-    keypoints = detector.detect(foreground_mask)
+    # params = cv2.SimpleBlobDetector_Params()
+    # # Adjust parameters according to your needs
+    # detector = cv2.SimpleBlobDetector_create(params)
+    #
+    # # Detect blobs
+    # keypoints = detector.detect(foreground_mask)
+    #
+    # # Initialize an empty mask for filled blobs
+    # mask_with_filled_blobs = np.zeros_like(foreground_mask)
+    #
+    # # Fill the detected blobs in the mask
+    # for k in keypoints:
+    #     # Drawing filled circles on the mask for each blob
+    #     radius = int(k.size / 2)  # Adjust radius as necessary
+    #     center = (int(k.pt[0]), int(k.pt[1]))  # Blob center
+    #     cv2.circle(mask_with_filled_blobs, center, radius, (255), thickness=5)  # Fill the circle
+    # combined_mask = cv2.bitwise_or(foreground_mask, mask_with_filled_blobs)
 
-    # Draw detected blobs as red circles (adjust drawing parameters as needed)
-    # im_with_keypoints = cv2.drawKeypoints(foreground_mask, keypoints, np.array([]), (0, 0, 255),
-    #                                       cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+    # combined_mask = optimize_noise(foreground_mask, max_iterations=10)
     return foreground_mask
+
+
+def optimize_noise(foreground_mask, max_iterations=10):
+    best_mask = foreground_mask.copy()
+    lowest_noise = np.inf  # Initialize with infinity; aim to minimize this
+
+    for iteration in range(1, max_iterations + 1):
+        # Dynamically adjust the kernel size based on iteration
+        kernel_size = iteration
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+
+        # Apply erosion to remove noise
+        eroded_mask = cv2.erode(foreground_mask, kernel, iterations=1)
+
+        # Apply dilation to restore object size
+        dilated_mask = cv2.dilate(eroded_mask, kernel, iterations=1)
+
+        # Evaluate the segmentation quality (example metric: count isolated pixels)
+        noise_level = count_isolated_pixels(dilated_mask)
+
+        # Update the best mask if current iteration has lower noise
+        if noise_level < lowest_noise:
+            lowest_noise = noise_level
+            best_mask = dilated_mask.copy()
+
+    return best_mask
+
+
+def count_isolated_pixels(mask):
+    # Define a 3x3 kernel with all ones. This kernel will be used to count the number of white neighbors for each pixel.
+    kernel = np.array([[1, 1, 1],
+                       [1, 0, 1],  # Notice the center is 0, so we don't count the pixel itself, only its neighbors
+                       [1, 1, 1]], dtype=np.uint8)
+
+    # Use convolution to count the number of white neighbors for each white pixel in the mask
+    neighbor_count = cv2.filter2D((mask / 255).astype(np.uint8), -1, kernel, borderType=cv2.BORDER_CONSTANT)
+
+    # A pixel is considered isolated if it is white and has 2 or fewer white neighbors
+    # Adjust this threshold as needed based on your definition of "isolated"
+    isolated_pixels = np.where((mask == 255) & (neighbor_count <= 2), 1, 0)
+
+    # Count the number of isolated pixels
+    count = np.sum(isolated_pixels)
+
+    return count
 
 
 def generate_mask(diff, th_hue, th_sat, th_val):
@@ -339,36 +394,84 @@ def optimize_thresholds(video_frame, ground_truth):
     return optimal_thresholds
 
 
+def dynamic_threshold_estimation(diff):
+    # Example: Use the 95th percentile of the difference values as the threshold
+    th_hue = np.percentile(diff[:, :, 0], 70)
+    th_sat = np.percentile(diff[:, :, 1], 70)
+    th_val = np.percentile(diff[:, :, 2], 70)
+    print(th_hue,th_sat,th_val)
+    return th_hue, th_sat, th_val
+
+
+# def subtraction(video_path, background_model_hsv):
+#     cap = cv2.VideoCapture(video_path)
+#
+#     while cap.isOpened():
+#         ret, frame = cap.read()
+#         if not ret:
+#             break
+#
+#         # Convert the frame to HSV
+#         frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+#
+#         # Calculate the absolute difference
+#         diff = cv2.absdiff(frame_hsv, background_model_hsv)
+#
+#         # Thresholds - adjust these values based on your needs
+#         th_hue = 0
+#         th_sat = 5
+#         th_val = 5
+#
+#         foreground_mask = generate_mask(diff, th_hue, th_sat, th_val)
+#         foreground_mask = apply_morphological_ops(foreground_mask)
+#
+#         #Display the result
+#         cv2.imshow('Foreground Mask', foreground_mask)
+#         if cv2.waitKey(1) & 0xFF == ord('q'):
+#             break
+#     cap.release()
+#     cv2.destroyAllWindows()
+#     return foreground_mask
+
 def subtraction(video_path, background_model_hsv):
     cap = cv2.VideoCapture(video_path)
+    frame_diffs = []
 
-    while cap.isOpened():
+    while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        # Convert the frame to HSV
+        # Convert the frame to HSV and calculate the absolute difference
         frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-        # Calculate the absolute difference
         diff = cv2.absdiff(frame_hsv, background_model_hsv)
+        frame_diffs.append(diff)
 
-        # Thresholds - adjust these values based on your needs
-        th_hue = 0
-        th_sat = 5
-        th_val = 5
+    # Assuming the use of multiple frames to estimate dynamic thresholds
+    # Convert the list of diffs into a single numpy array for easier processing
+    diffs = np.stack(frame_diffs, axis=0)
+    th_hue, th_sat, th_val = dynamic_threshold_estimation(diffs)
 
+    # Reinitialize the capture and process again with determined thresholds
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    foreground_mask = None
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        diff = cv2.absdiff(frame_hsv, background_model_hsv)
         foreground_mask = generate_mask(diff, th_hue, th_sat, th_val)
         foreground_mask = apply_morphological_ops(foreground_mask)
 
-        #Display the result
-        # cv2.imshow('Foreground Mask', foreground_mask)
-        # if cv2.waitKey(1) & 0xFF == ord('q'):
-        #     break
+        cv2.imshow('Foreground Mask', foreground_mask)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
     cap.release()
-    cv2.destroyAllWindows()
-    return foreground_mask
 
+    return foreground_mask
 
 def background_subtraction():
     forground_masks = []
@@ -491,16 +594,16 @@ def check_visibility_and_reconstruct(silhouette_masks):
     With 50 intervals along each axis, we have 50×50×50 = 125,000
     50×50×50=125,000 voxels in total. Each row in voxels is a 3D point [x, y, z] representing the center of a voxel.
     """
-    x_range = np.linspace(-1000, 1000, num=100)
-    y_range = np.linspace(-1000, 1000, num=100)
-    z_range = np.linspace(0, 2000, num=100)
+    x_range = np.linspace(-1000, 1000, num=200)
+    y_range = np.linspace(-1000, 1000, num=200)
+    z_range = np.linspace(0, 2000, num=200)
     voxels = np.array(np.meshgrid(x_range, y_range, z_range)).T.reshape(-1, 3)
     print(x_range)
     print(voxels.shape)
     lookup_table = create_lut(voxels)
     visible_points=[]
     # Initialization of the 3D reconstruction space
-    reconstruction_space = np.zeros((100, 100, 100), dtype=bool)
+    reconstruction_space = np.zeros((200, 200, 200), dtype=bool)
     # Assuming silhouette_masks is defined
     for voxel_index in range(len(voxels)):
         x, y, z = voxels[voxel_index]  # Get voxel coordinates (you may need to adjust the mapping based on your grid definition)
@@ -508,7 +611,9 @@ def check_visibility_and_reconstruct(silhouette_masks):
         if check_voxel_visibility(voxel_index, lookup_table, silhouette_masks):
             # This voxel is part of the reconstruction
             # print("hello")
-            reconstruction_space[int((int(x)+1000)/20), int((int(y)+1000)/20), int(int(z)/20)] = True
+
+            reconstruction_space[voxel_index // (200 * 200), (voxel_index // 200) % 200, voxel_index % 200] = True
+            # reconstruction_space[int((int(x)+1000)/10), int((int(y)+1000)/10), int(int(z)/10)] = True
             visible_points.append([x, y, z])  # Add visible voxel center to the list
 
     # Convert the list of visible points to a NumPy array for easier plotting
@@ -525,16 +630,6 @@ def check_visibility_and_reconstruct(silhouette_masks):
     plt.title('3D Visualization of Visible Voxels')
     plt.show()
 
-    # # Adjust the structure element as needed
-    # structure_element = np.ones((3, 3, 3), dtype=np.bool)
-    #
-    # # Remove noise
-    # reconstruction_cleaned = binary_opening(reconstruction_space, structure=structure_element)
-    #
-    # # Fill small holes
-    # reconstruction_final = binary_closing(reconstruction_cleaned, structure=structure_element)
-    # # Apply Marching Cubes to get the vertices and faces
-    # vertices, faces, _, _ = marching_cubes(reconstruction_final, level=0)
 
 
 def main():
