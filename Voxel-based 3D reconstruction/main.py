@@ -290,9 +290,9 @@ def evaluate_segmentation(mask, ground_truth):
 
 def apply_morphological_ops(foreground_mask):
     # Apply morphological operations to clean up the mask
-    kernel = np.ones((2,2), np.uint8)
-    foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_OPEN, kernel)
-    kernel = np.ones((6, 6), np.uint8)
+    # kernel = np.ones((2,2), np.uint8)
+    # foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_OPEN, kernel)
+    kernel = np.ones((5, 5), np.uint8)
     foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_CLOSE, kernel)
     # params = cv2.SimpleBlobDetector_Params()
     # # Adjust parameters according to your needs
@@ -397,9 +397,9 @@ def optimize_thresholds(video_frame, ground_truth):
 
 def dynamic_threshold_estimation(diff):
     # Example: Use the 95th percentile of the difference values as the threshold
-    th_hue = np.percentile(diff[:, :, 0], 70)
-    th_sat = np.percentile(diff[:, :, 1], 70)
-    th_val = np.percentile(diff[:, :, 2], 70)
+    th_hue = np.percentile(diff[:, :, 0], 80)
+    th_sat = np.percentile(diff[:, :, 1], 80)
+    th_val = np.percentile(diff[:, :, 2], 80)
     print(th_hue,th_sat,th_val)
     return th_hue, th_sat, th_val
 
@@ -591,20 +591,17 @@ def check_voxel_visibility(voxel_index, lut, silhouette_masks):
 
 def check_visibility_and_reconstruct(silhouette_masks):
     # Define the 3D grid (example)
-    """""
-    With 50 intervals along each axis, we have 50×50×50 = 125,000
-    50×50×50=125,000 voxels in total. Each row in voxels is a 3D point [x, y, z] representing the center of a voxel.
-    """
-    x_range = np.linspace(-1000, 1000, num=200)
-    y_range = np.linspace(-1000, 1000, num=200)
-    z_range = np.linspace(0, 2000, num=200)
+
+    x_range = np.linspace(-1000, 1000, num=100)
+    y_range = np.linspace(-1000, 1000, num=100)
+    z_range = np.linspace(0, 2000, num=100)
     voxels = np.array(np.meshgrid(x_range, y_range, z_range)).T.reshape(-1, 3)
-    print(x_range)
-    print(voxels.shape)
+    # print(x_range)
+    # print(voxels.shape)
     lookup_table = create_lut(voxels)
     visible_points=[]
     # Initialization of the 3D reconstruction space
-    reconstruction_space = np.zeros((200, 200, 200), dtype=bool)
+    reconstruction_space = np.zeros((100, 100, 100), dtype=bool)
     # Assuming silhouette_masks is defined
     for voxel_index in range(len(voxels)):
         x, y, z = voxels[voxel_index]  # Get voxel coordinates (you may need to adjust the mapping based on your grid definition)
@@ -613,9 +610,19 @@ def check_visibility_and_reconstruct(silhouette_masks):
             # This voxel is part of the reconstruction
             # print("hello")
 
-            reconstruction_space[voxel_index // (200 * 200), (voxel_index // 200) % 200, voxel_index % 200] = True
-            # reconstruction_space[int((int(x)+1000)/10), int((int(y)+1000)/10), int(int(z)/10)] = True
-            visible_points.append([x, y, z])  # Add visible voxel center to the list
+            # reconstruction_space[voxel_index // (100 * 100), (voxel_index // 100) % 100, voxel_index % 100] = True
+            # Corrected the indexing to reflect the voxel grid setup
+            ix = min(int((x + 1000) / 20), 99)
+            iy = min(int((y + 1000) / 20), 99)
+            iz = min(int(z / 20 ), 99)
+
+            reconstruction_space[ix, iy, iz] = True
+            visible_points.append([ix, iy, iz])  # Add visible voxel center to the list
+            # visible_points.append([x, y, z])
+
+    with open("Computer-Vision-3D-Reconstruction/voxels.txt", "w") as file:
+        for point in visible_points:
+            file.write(f"{point[0]} {point[1]} {point[2]}\n")
 
     # Convert the list of visible points to a NumPy array for easier plotting
     visible_points = np.array(visible_points)
