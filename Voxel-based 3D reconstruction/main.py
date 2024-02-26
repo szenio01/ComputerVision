@@ -620,16 +620,16 @@ def check_voxel_visibility(voxel_index, lut, silhouette_masks):
 def check_visibility_and_reconstruct(silhouette_masks):
     # Define the 3D grid (example)
 
-    x_range = np.linspace(-500, 500, num=50)
-    y_range = np.linspace(-500, 500, num=50)
-    z_range = np.linspace(0, 1000, num=50)
+    x_range = np.linspace(-1000, 1000, num=40)
+    y_range = np.linspace(-1000, 1000, num=40)
+    z_range = np.linspace(0, 2000, num=40)
     voxels = np.array(np.meshgrid(x_range, y_range, z_range)).T.reshape(-1, 3)
     # print(x_range)
     # print(voxels.shape)
     lookup_table = create_lut(voxels)
     visible_points = []
     # Initialization of the 3D reconstruction space
-    reconstruction_space = np.zeros((100, 100, 100), dtype=bool)
+    reconstruction_space = np.zeros((500, 500, 500), dtype=bool)
     # Assuming silhouette_masks is defined
     for voxel_index in range(len(voxels)):
         x, y, z = voxels[voxel_index]  # Get voxel coordinates (you may need to adjust the mapping based on your grid definition)
@@ -640,9 +640,9 @@ def check_visibility_and_reconstruct(silhouette_masks):
 
             # reconstruction_space[voxel_index // (100 * 100), (voxel_index // 100) % 100, voxel_index % 100] = True
             # # Corrected the indexing to reflect the voxel grid setup
-            ix = int((x)/20 )
-            iy = int((y)/20 )
-            iz = int(z /20)
+            ix = int((x)/50)
+            iy = int((y)/50)
+            iz = int(z /50)
 
             # reconstruction_space[ix, iy, iz] = True
             visible_points.append([ix, iy, iz])  # Add visible voxel center to the list
