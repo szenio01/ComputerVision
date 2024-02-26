@@ -290,8 +290,9 @@ def evaluate_segmentation(mask, ground_truth):
 
 def apply_morphological_ops(foreground_mask):
     # Apply morphological operations to clean up the mask
-    kernel = np.ones((3, 3), np.uint8)
+    kernel = np.ones((2,2), np.uint8)
     foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_OPEN, kernel)
+    kernel = np.ones((6, 6), np.uint8)
     foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_CLOSE, kernel)
     # params = cv2.SimpleBlobDetector_Params()
     # # Adjust parameters according to your needs
