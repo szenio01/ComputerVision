@@ -285,30 +285,39 @@ def evaluate_segmentation(mask, ground_truth):
 
 def apply_morphological_ops(foreground_mask):
     # Apply morphological operations to clean up the mask
-    # kernel = np.ones((2,2), np.uint8)
-    # foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_OPEN, kernel)
-    kernel = np.ones((5, 5), np.uint8)
+    kernel = np.ones((2,2), np.uint8)
+    foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_OPEN, kernel)
+    kernel = np.ones((7,7), np.uint8)
     foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_CLOSE, kernel)
-    # params = cv2.SimpleBlobDetector_Params()
-    # # Adjust parameters according to your needs
-    # detector = cv2.SimpleBlobDetector_create(params)
-    #
-    # # Detect blobs
-    # keypoints = detector.detect(foreground_mask)
-    #
-    # # Initialize an empty mask for filled blobs
-    # mask_with_filled_blobs = np.zeros_like(foreground_mask)
-    #
-    # # Fill the detected blobs in the mask
-    # for k in keypoints:
-    #     # Drawing filled circles on the mask for each blob
-    #     radius = int(k.size / 2)  # Adjust radius as necessary
-    #     center = (int(k.pt[0]), int(k.pt[1]))  # Blob center
-    #     cv2.circle(mask_with_filled_blobs, center, radius, (255), thickness=5)  # Fill the circle
-    # combined_mask = cv2.bitwise_or(foreground_mask, mask_with_filled_blobs)
-
-    # combined_mask = optimize_noise(foreground_mask, max_iterations=10)
+    kernel = np.ones((3,3), np.uint8)
+    foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_OPEN, kernel)
     return foreground_mask
+# def apply_morphological_ops(foreground_mask):
+#     # Apply morphological operations to clean up the mask
+#     # kernel = np.ones((2,2), np.uint8)
+#     # foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_OPEN, kernel)
+#     kernel = np.ones((5, 5), np.uint8)
+#     foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_CLOSE, kernel)
+#     # params = cv2.SimpleBlobDetector_Params()
+#     # # Adjust parameters according to your needs
+#     # detector = cv2.SimpleBlobDetector_create(params)
+#     #
+#     # # Detect blobs
+#     # keypoints = detector.detect(foreground_mask)
+#     #
+#     # # Initialize an empty mask for filled blobs
+#     # mask_with_filled_blobs = np.zeros_like(foreground_mask)
+#     #
+#     # # Fill the detected blobs in the mask
+#     # for k in keypoints:
+#     #     # Drawing filled circles on the mask for each blob
+#     #     radius = int(k.size / 2)  # Adjust radius as necessary
+#     #     center = (int(k.pt[0]), int(k.pt[1]))  # Blob center
+#     #     cv2.circle(mask_with_filled_blobs, center, radius, (255), thickness=5)  # Fill the circle
+#     # combined_mask = cv2.bitwise_or(foreground_mask, mask_with_filled_blobs)
+#
+#     # combined_mask = optimize_noise(foreground_mask, max_iterations=10)
+#     return foreground_mask
 
 
 def optimize_noise(foreground_mask, max_iterations=10):
@@ -390,13 +399,35 @@ def optimize_thresholds(video_frame, ground_truth):
     return optimal_thresholds
 
 
-def dynamic_threshold_estimation(diff):
-    # Example: Use the 95th percentile of the difference values as the threshold
-    th_hue = np.percentile(diff[:, :, 0], 80)
-    th_sat = np.percentile(diff[:, :, 1], 80)
-    th_val = np.percentile(diff[:, :, 2], 80)
-    print(th_hue, th_sat, th_val)
+
+def dynamic_threshold_estimation(diffs):
+    # Calculate the mean and standard deviation for each channel across all frames
+    # mean_hue = np.mean(diffs[:, :, :, 0])
+    # std_hue = np.std(diffs[:, :, :, 0])
+    #
+    # mean_sat = np.mean(diffs[:, :, :, 1])
+    # std_sat = np.std(diffs[:, :, :, 1])
+    #
+    # mean_val = np.mean(diffs[:, :, :, 2])
+    # std_val = np.std(diffs[:, :, :, 2])
+    #
+    # # Set thresholds as a number of standard deviations away from the mean
+    # # This number (e.g., 2 or 3) can be adjusted based on empirical results
+    # num_std = 1  # Example value, adjust based on testing
+    #
+    # th_hue = mean_hue + num_std * std_hue
+    # th_sat = mean_sat + num_std * std_sat
+    # th_val = mean_val + num_std * std_val
+    # print(th_hue, th_sat, th_val)
+    # Use percentiles to determine thresholds
+    th_hue = np.percentile(diffs[:, :, :, 0], 80)  # Adjust the percentile as needed
+    th_sat = np.percentile(diffs[:, :, :, 1], 80)  # Adjust the percentile as needed
+    th_val = np.percentile(diffs[:, :, :, 2], 80)  # Adjust the percentile as needed
+
     return th_hue, th_sat, th_val
+    # return th_hue, th_sat, th_val
+
+
 
 
 # def subtraction(video_path, background_model_hsv):
