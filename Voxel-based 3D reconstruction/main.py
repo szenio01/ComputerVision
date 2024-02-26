@@ -6,6 +6,7 @@ from helper_functions import *
 import matplotlib as ptl
 from scipy.ndimage import binary_opening, binary_closing
 from skimage.measure import marching_cubes
+
 # Define the chess board size and square size
 chessboard_size = (6, 8)
 square_size = 115.0
@@ -16,7 +17,8 @@ objp[:, :2] = np.mgrid[0:chessboard_size[0], 0:chessboard_size[1]].T.reshape(-1,
 objp *= square_size
 directory = "data"
 
-def online_phase(test_img, objp, mtx, dist,rvec,tvec):
+
+def online_phase(test_img, objp, mtx, dist, rvec, tvec):
     """
     Performs the online phase of camera calibration by detecting corners in a test image and visualizing 3D objects.
 
@@ -80,7 +82,6 @@ def calibrate_cameras():
     # Set the termination criteria for the corner sub-pixel algorithm
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
-
     # Dictionary to hold calibration parameters for each camera
     calibration_params = {}
 
@@ -115,9 +116,6 @@ def calibrate_cameras():
         if len(objpoints) > 0 and len(imgpoints) > 0:
             ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
 
-
-
-
             # Calculate and check the reprojection error for each image
             max_acceptable_error = 0.075  # Define the maximum acceptable reprojection error
             for i, (rvec, tvec, objp1, imgp) in enumerate(zip(rvecs, tvecs, objpoints, imgpoints)):
@@ -142,8 +140,6 @@ def calibrate_cameras():
             ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(filtered_objpoints, filtered_imgpoints, img.shape[1::-1],
                                                                None,
                                                                None)
-
-
 
             calibration_params[cam_id] = {'mtx': mtx, 'dist': dist, 'rvecs': rvecs, 'tvecs': tvecs}
         else:
@@ -188,7 +184,7 @@ def calculate_extrinsics(calibration_parameters):
         cv2.namedWindow('Image', cv2.WINDOW_NORMAL)
         cv2.resizeWindow('Image', 1000, 1200)
         cv2.imshow('Image', img)
-        cv2.setMouseCallback('Image', draw_circle,img)
+        cv2.setMouseCallback('Image', draw_circle, img)
 
         # Wait until the user has clicked four points
         while len(corner_points) < 4:
@@ -209,8 +205,7 @@ def calculate_extrinsics(calibration_parameters):
 
         cv2.destroyAllWindows()
 
-
-        online_phase(img_new, objp, mtx, dist,rvecs,tvecs)
+        online_phase(img_new, objp, mtx, dist, rvecs, tvecs)
 
     return extrinsic_parameters
 
@@ -400,7 +395,7 @@ def dynamic_threshold_estimation(diff):
     th_hue = np.percentile(diff[:, :, 0], 80)
     th_sat = np.percentile(diff[:, :, 1], 80)
     th_val = np.percentile(diff[:, :, 2], 80)
-    print(th_hue,th_sat,th_val)
+    print(th_hue, th_sat, th_val)
     return th_hue, th_sat, th_val
 
 
@@ -474,6 +469,7 @@ def subtraction(video_path, background_model_hsv):
 
     return foreground_mask
 
+
 def background_subtraction():
     forground_masks = []
     for cam_id in range(1, 5):
@@ -485,6 +481,7 @@ def background_subtraction():
         background_model_hsv = cv2.cvtColor(background_model, cv2.COLOR_BGR2HSV)
         forground_masks.append(subtraction(video_path, background_model_hsv))
     return forground_masks
+
 
 # def create_lookup_table(voxel_grid, all_camera_configs):
 #     lookup_table = {}
@@ -592,14 +589,14 @@ def check_voxel_visibility(voxel_index, lut, silhouette_masks):
 def check_visibility_and_reconstruct(silhouette_masks):
     # Define the 3D grid (example)
 
-    x_range = np.linspace(-1000, 1000, num=100)
-    y_range = np.linspace(-1000, 1000, num=100)
-    z_range = np.linspace(0, 2000, num=100)
+    x_range = np.linspace(-500, 500, num=50)
+    y_range = np.linspace(-500, 500, num=50)
+    z_range = np.linspace(0, 1000, num=50)
     voxels = np.array(np.meshgrid(x_range, y_range, z_range)).T.reshape(-1, 3)
     # print(x_range)
     # print(voxels.shape)
     lookup_table = create_lut(voxels)
-    visible_points=[]
+    visible_points = []
     # Initialization of the 3D reconstruction space
     reconstruction_space = np.zeros((100, 100, 100), dtype=bool)
     # Assuming silhouette_masks is defined
@@ -611,33 +608,32 @@ def check_visibility_and_reconstruct(silhouette_masks):
             # print("hello")
 
             # reconstruction_space[voxel_index // (100 * 100), (voxel_index // 100) % 100, voxel_index % 100] = True
-            # Corrected the indexing to reflect the voxel grid setup
-            ix = min(int((x + 1000) / 20), 99)
-            iy = min(int((y + 1000) / 20), 99)
-            iz = min(int(z / 20 ), 99)
+            # # Corrected the indexing to reflect the voxel grid setup
+            ix = int((x)/20 )
+            iy = int((y)/20 )
+            iz = int(z /20)
 
-            reconstruction_space[ix, iy, iz] = True
+            # reconstruction_space[ix, iy, iz] = True
             visible_points.append([ix, iy, iz])  # Add visible voxel center to the list
             # visible_points.append([x, y, z])
 
     with open("Computer-Vision-3D-Reconstruction/voxels.txt", "w") as file:
         for point in visible_points:
             file.write(f"{point[0]} {point[1]} {point[2]}\n")
-
-    # Convert the list of visible points to a NumPy array for easier plotting
-    visible_points = np.array(visible_points)
-
-    # Create a 3D plot of the visible points
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-
-    ax.scatter(visible_points[:, 0], visible_points[:, 1], visible_points[:, 2], c='r', marker='o')
-    ax.set_xlabel('X Label')
-    ax.set_ylabel('Y Label')
-    ax.set_zlabel('Z Label')
-    plt.title('3D Visualization of Visible Voxels')
-    plt.show()
-
+    #
+    # # Convert the list of visible points to a NumPy array for easier plotting
+    # visible_points = np.array(visible_points)
+    #
+    # # Create a 3D plot of the visible points
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111, projection='3d')
+    #
+    # ax.scatter(visible_points[:, 0], visible_points[:, 1], visible_points[:, 2], c='r', marker='o')
+    # ax.set_xlabel('X Label')
+    # ax.set_ylabel('Y Label')
+    # ax.set_zlabel('Z Label')
+    # plt.title('3D Visualization of Visible Voxels')
+    # plt.show()
 
 
 def main():
@@ -663,8 +659,7 @@ def main():
     # 3. Create a background image
     check_visibility_and_reconstruct(foreground_masks)
 
-
-    #Find Best treshholds
+    # Find Best treshholds
     # video_frame = f'data/cam{1}/frame1.jpg'
     # ground_truth = f'data/cam{1}/frame_manual.jpg'
     # ground_truth = cv2.imread(ground_truth, cv2.IMREAD_GRAYSCALE)
@@ -672,5 +667,7 @@ def main():
     # # If your ground_truth image is not already binary, apply thresholding
     # _, ground_truth = cv2.threshold(ground_truth, 127, 255, cv2.THRESH_BINARY)
     # print(optimize_thresholds(background_subtraction(), ground_truth))
+
+
 if __name__ == "__main__":
     main()
