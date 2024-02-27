@@ -1,6 +1,10 @@
+import time
+
 import cv2
 import numpy as np
 from matplotlib import pyplot as plt
+from joblib import Parallel, delayed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from helper_functions import *
 import matplotlib as ptl
@@ -518,27 +522,48 @@ def background_subtraction():
     return forground_masks, coloured_images
 
 
-# def create_lookup_table(voxel_grid, all_camera_configs):
-#     lookup_table = {}
-#
-#     for voxel in voxel_grid:
-#         voxel_3D = np.array([[voxel.x, voxel.y, voxel.z]], dtype=np.float32)  # Voxel's 3D coordinates
-#
-#         for cam_id, config in all_camera_configs.items():
-#             rvec = config['rvecs']
-#             tvec = config['tvecs']
-#             mtx = config['mtx']
-#             dist = config['dist']
-#
-#             # Project the 3D voxel coordinates to 2D image coordinates
-#             projected_2D, _ = cv2.projectPoints(voxel_3D, rvec, tvec, mtx, dist)
-#
-#             # Store the projected 2D coordinates in the lookup table
-#             if voxel not in lookup_table:
-#                 lookup_table[voxel] = {}
-#             lookup_table[voxel][cam_id] = projected_2D[0][0]  # First point, first coordinate pair
-#
-#     return lookup_table
+def background_subtraction_parallel():
+    def process_camera(cam_id):
+        background_model_path = f'data/cam{cam_id}/background_model.jpg'
+        video_path = f'data/cam{cam_id}/video.avi'
+
+        # Read the background model and convert it to HSV
+        background_model = cv2.imread(background_model_path)
+        background_model_hsv = cv2.cvtColor(background_model, cv2.COLOR_BGR2HSV)
+        forground_mask, coloured_image = subtraction(video_path, background_model_hsv)
+
+        return forground_mask, coloured_image
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(process_camera, cam_id) for cam_id in range(1, 5)]
+
+        results = [future.result() for future in futures]
+
+    forground_masks, coloured_images = zip(*results)  # Unzips the results into two lists
+
+    return forground_masks, coloured_images
+
+def create_lookup_table(voxel_grid, all_camera_configs):
+    lookup_table = {}
+
+    for voxel in voxel_grid:
+        voxel_3D = np.array([[voxel.x, voxel.y, voxel.z]], dtype=np.float32)  # Voxel's 3D coordinates
+
+        for cam_id, config in all_camera_configs.items():
+            rvec = config['rvecs']
+            tvec = config['tvecs']
+            mtx = config['mtx']
+            dist = config['dist']
+
+            # Project the 3D voxel coordinates to 2D image coordinates
+            projected_2D, _ = cv2.projectPoints(voxel_3D, rvec, tvec, mtx, dist)
+
+            # Store the projected 2D coordinates in the lookup table
+            if voxel not in lookup_table:
+                lookup_table[voxel] = {}
+            lookup_table[voxel][cam_id] = projected_2D[0][0]  # First point, first coordinate pair
+
+    return lookup_table
 
 
 def parse_camera_config_from_file(config_path):
@@ -582,21 +607,24 @@ def create_lut(voxels):
 
     return lut
 
+def create_lut_parallel(voxels):
+    def process_camera(cam_id):
+        config_path = f"data/cam{cam_id}/camera_properties.xml"
+        camera_matrix, dist_coeffs, rvec, tvec = parse_camera_config_from_file(config_path)
 
-# def check_voxel_visibility(voxel_index, lut, silhouette_masks):
-#     visible_in_any_camera = False
-#     for cam_id, points_2d in lut.items():
-#         point = points_2d[voxel_index]
-#         x, y = int(point[0]), int(point[1])
-#         # Check if the point is within the image bounds and corresponds to the foreground
-#         if 0 <= x < silhouette_masks[cam_id].shape[1] and 0 <= y < silhouette_masks[cam_id].shape[0]:
-#             if silhouette_masks[cam_id][y, x] == 255:
-#                 visible_in_any_camera = True
-#                 break  # No need to check other cameras if visible in one
-#         if visible_in_any_camera:
-#             break
-#
-#     return visible_in_any_camera
+        # Project all voxels to 2D for this camera
+        points_2d = project_to_2d(voxels, camera_matrix, dist_coeffs, rvec, tvec)
+        return cam_id, points_2d
+
+    lut = {}
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(process_camera, cam_id) for cam_id in range(1, 5)]
+        for future in futures:
+            cam_id, points_2d = future.result()
+            lut[cam_id] = points_2d  # Store the 2D points in the LUT
+
+    return lut
+
 
 
 def check_voxel_visibility(voxel_index, lut, silhouette_masks, color_images):
@@ -623,19 +651,17 @@ def check_voxel_visibility(voxel_index, lut, silhouette_masks, color_images):
         return None
 
 
+
 def check_visibility_and_reconstruct(silhouette_masks, coloured_images):
     # Define the 3D grid (example)
 
-    x_range = np.linspace(-1000, 1000, num=50)
-    y_range = np.linspace(-1000, 1000, num=50)
-    z_range = np.linspace(0, 2000, num=50)
+    x_range = np.linspace(-1024, 1024, num=50)
+    y_range = np.linspace(-1024, 1024, num=50)
+    z_range = np.linspace(0, 2048, num=50)
     voxels = np.array(np.meshgrid(x_range, y_range, z_range)).T.reshape(-1, 3)
-    # print(x_range)
-    # print(voxels.shape)
-    lookup_table = create_lut(voxels)
+    lookup_table = create_lut_parallel(voxels)
+
     visible_points = []
-    # Initialization of the 3D reconstruction space
-    reconstruction_space = np.zeros((500, 500, 500), dtype=bool)
     # Assuming silhouette_masks is defined
     for voxel_index in range(len(voxels)):
         x, y, z = voxels[
@@ -644,36 +670,43 @@ def check_visibility_and_reconstruct(silhouette_masks, coloured_images):
         colour = check_voxel_visibility(voxel_index, lookup_table, silhouette_masks, coloured_images)
         if colour is not None:
             # This voxel is part of the reconstruction
-            # print("hello")
-
-            # reconstruction_space[voxel_index // (100 * 100), (voxel_index // 100) % 100, voxel_index % 100] = True
             # # Corrected the indexing to reflect the voxel grid setup
             ix = int((x) / 64)
             iy = int((y) / 64)
             iz = int(z / 64)
 
-            # reconstruction_space[ix, iy, iz] = True
             visible_points.append([ix, iy, iz, *colour])  # Add visible voxel center to the list
-            # visible_points.append([x, y, z])
 
     with open("Computer-Vision-3D-Reconstruction/voxels.txt", "w") as file:
         for point in visible_points:
             file.write(f"{point[0]} {point[1]} {point[2]} {point[3]} {point[4]} {point[5]}\n")
-    #
-    # # Convert the list of visible points to a NumPy array for easier plotting
-    # visible_points = np.array(visible_points)
-    #
-    # # Create a 3D plot of the visible points
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111, projection='3d')
-    #
-    # ax.scatter(visible_points[:, 0], visible_points[:, 1], visible_points[:, 2], c='r', marker='o')
-    # ax.set_xlabel('X Label')
-    # ax.set_ylabel('Y Label')
-    # ax.set_zlabel('Z Label')
-    # plt.title('3D Visualization of Visible Voxels')
-    # plt.show()
 
+# Step 3: Automatic Color Matching
+def match_color_distribution(source_img, reference_img):
+    matched_img = np.zeros_like(source_img)
+    for channel in range(3):  # For each color channel
+        source_mean, source_std = cv2.meanStdDev(source_img[:, :, channel])
+        reference_mean, reference_std = cv2.meanStdDev(reference_img[:, :, channel])
+
+        scaled_img = ((source_img[:, :, channel] - source_mean) * (reference_std / source_std)) + reference_mean
+        matched_img[:, :, channel] = np.clip(scaled_img, 0, 255)
+
+    return matched_img.astype(np.uint8)
+
+def simple_white_balance(img):
+    # Convert image to float32 for processing
+    img_float = img.astype(np.float32)
+    # Calculate the average of each channel (R, G, B)
+    avg_rgb = np.mean(img_float, axis=(0, 1))
+    # Calculate the average intensity over all channels
+    avg_intensity = np.mean(avg_rgb)
+    # Scale each channel to adjust the white balance
+    img_float[:, :, 0] *= avg_intensity / avg_rgb[0]
+    img_float[:, :, 1] *= avg_intensity / avg_rgb[1]
+    img_float[:, :, 2] *= avg_intensity / avg_rgb[2]
+    # Clip values to [0, 255] and convert back to uint8
+    balanced_img = np.clip(img_float, 0, 255).astype(np.uint8)
+    return balanced_img
 
 def main():
     global corner_points
@@ -689,15 +722,22 @@ def main():
     create_background_models()
 
     # 2. Create a background image
-    foreground_masks, coloured_images = background_subtraction()
+
+    foreground_masks, coloured_images = background_subtraction_parallel()
+
     coloured_images = np.array(coloured_images)
     foreground_masks = np.array(foreground_masks)
-    # cv2.imshow('Background Model', forground_masks[0])
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+
+    # Apply white balance to each image
+    white_balanced_images = [simple_white_balance(img) for img in coloured_images]
+
+    # Choose the first white-balanced image as the reference for color matching
+    reference_image = white_balanced_images[0]
+    # Apply color matching to white-balanced images
+    coloured_images_corrected = [match_color_distribution(img, reference_image) for img in white_balanced_images]
 
     # 3. Create a background image
-    check_visibility_and_reconstruct(foreground_masks, coloured_images)
+    check_visibility_and_reconstruct(foreground_masks, coloured_images_corrected)
 
     # Find Best treshholds
     # video_frame = f'data/cam{1}/frame1.jpg'
