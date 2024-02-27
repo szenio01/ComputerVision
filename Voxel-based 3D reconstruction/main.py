@@ -280,6 +280,8 @@ def create_background_models():
 
 
 def evaluate_segmentation(mask, ground_truth):
+    ground_truth = np.array(ground_truth)
+    ground_truth = cv2.cvtColor(ground_truth, cv2.COLOR_BGR2GRAY)
     # Calculate the XOR to find differences
     xor_result = cv2.bitwise_xor(mask, ground_truth)
     # Count the non-zero pixels in the XOR result
@@ -388,9 +390,9 @@ def optimize_thresholds(video_frame, ground_truth):
     minimal_discrepancies = float('inf')
 
     # Example ranges, adjust based on your experimentation
-    for th_hue in range(0, 180, 10):
-        for th_sat in range(50, 250, 10):
-            for th_val in range(50, 250, 10):
+    for th_hue in range(0, 30, 1):
+        for th_sat in range(0, 30, 1):
+            for th_val in range(0, 30, 1):
                 # Generate the mask based on current thresholds
                 mask = generate_mask(video_frame, int(th_hue), int(th_sat), int(th_val))
                 # Apply morphological operations to reduce noise
@@ -401,7 +403,7 @@ def optimize_thresholds(video_frame, ground_truth):
                 if discrepancies < minimal_discrepancies:
                     minimal_discrepancies = discrepancies
                     optimal_thresholds = (th_hue, th_sat, th_val)
-
+    print(optimal_thresholds)
     return optimal_thresholds
 
 
@@ -463,7 +465,7 @@ def dynamic_threshold_estimation(diffs):
 #     cv2.destroyAllWindows()
 #     return foreground_mask
 
-def subtraction(video_path, background_model_hsv):
+def subtraction(video_path, background_model_hsv, ground_image):
     cap = cv2.VideoCapture(video_path)
     frame_diffs = []
     colour_frame = None
@@ -480,7 +482,7 @@ def subtraction(video_path, background_model_hsv):
     # Assuming the use of multiple frames to estimate dynamic thresholds
     # Convert the list of diffs into a single numpy array for easier processing
     diffs = np.stack(frame_diffs, axis=0)
-    th_hue, th_sat, th_val = dynamic_threshold_estimation(diffs)
+    th_hue, th_sat, th_val = optimize_thresholds(diff, ground_image)
 
     # Reinitialize the capture and process again with determined thresholds
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -496,9 +498,9 @@ def subtraction(video_path, background_model_hsv):
         foreground_mask = generate_mask(diff, th_hue, th_sat, th_val)
         foreground_mask = apply_morphological_ops(foreground_mask)
         colour_frame = frame
-        # cv2.imshow('Foreground Mask', foreground_mask)
-        # if cv2.waitKey(1) & 0xFF == ord('q'):
-        #     break
+        cv2.imshow('Foreground Mask', foreground_mask)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
     cap.release()
     # cv2.imshow('Coloured Frame', colour_frame)
     # cv2.waitKey(0)
@@ -512,11 +514,13 @@ def background_subtraction():
     for cam_id in range(1, 5):
         background_model_path = f'data/cam{cam_id}/background_model.jpg'
         video_path = f'data/cam{cam_id}/video.avi'
+        ground_image = f'data/{cam_id}.jpg'
+        ground_image = cv2.imread(ground_image)
 
         # Read the background model and convert it to HSV
         background_model = cv2.imread(background_model_path)
         background_model_hsv = cv2.cvtColor(background_model, cv2.COLOR_BGR2HSV)
-        forground_mask, coloured_image = subtraction(video_path, background_model_hsv)
+        forground_mask, coloured_image = subtraction(video_path, background_model_hsv,ground_image)
         forground_masks.append(forground_mask)
         coloured_images.append(coloured_image)
     return forground_masks, coloured_images
@@ -723,7 +727,7 @@ def main():
 
     # 2. Create a background image
 
-    foreground_masks, coloured_images = background_subtraction_parallel()
+    foreground_masks, coloured_images = background_subtraction()
 
     coloured_images = np.array(coloured_images)
     foreground_masks = np.array(foreground_masks)
