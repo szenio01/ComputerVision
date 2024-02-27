@@ -185,7 +185,7 @@ def calculate_extrinsics(calibration_parameters):
         cv2.resizeWindow('Image', 1000, 1200)
         cv2.imshow('Image', img)
         cv2.setMouseCallback('Image', draw_circle, img)
-
+        # cv2.imwrite(f'output_image{cam_id}.jpg', img)
         # Wait until the user has clicked four points
         while len(corner_points) < 4:
             cv2.waitKey(1)
@@ -285,13 +285,15 @@ def evaluate_segmentation(mask, ground_truth):
 
 def apply_morphological_ops(foreground_mask):
     # Apply morphological operations to clean up the mask
-    kernel = np.ones((2,2), np.uint8)
+    kernel = np.ones((2, 2), np.uint8)
     foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_OPEN, kernel)
-    kernel = np.ones((7,7), np.uint8)
+    kernel = np.ones((7, 7), np.uint8)
     foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_CLOSE, kernel)
-    kernel = np.ones((3,3), np.uint8)
+    kernel = np.ones((3, 3), np.uint8)
     foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_OPEN, kernel)
     return foreground_mask
+
+
 # def apply_morphological_ops(foreground_mask):
 #     # Apply morphological operations to clean up the mask
 #     # kernel = np.ones((2,2), np.uint8)
@@ -399,7 +401,6 @@ def optimize_thresholds(video_frame, ground_truth):
     return optimal_thresholds
 
 
-
 def dynamic_threshold_estimation(diffs):
     # Calculate the mean and standard deviation for each channel across all frames
     # mean_hue = np.mean(diffs[:, :, :, 0])
@@ -426,8 +427,6 @@ def dynamic_threshold_estimation(diffs):
 
     return th_hue, th_sat, th_val
     # return th_hue, th_sat, th_val
-
-
 
 
 # def subtraction(video_path, background_model_hsv):
@@ -463,7 +462,7 @@ def dynamic_threshold_estimation(diffs):
 def subtraction(video_path, background_model_hsv):
     cap = cv2.VideoCapture(video_path)
     frame_diffs = []
-
+    colour_frame = None
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -492,17 +491,20 @@ def subtraction(video_path, background_model_hsv):
         diff = cv2.absdiff(frame_hsv, background_model_hsv)
         foreground_mask = generate_mask(diff, th_hue, th_sat, th_val)
         foreground_mask = apply_morphological_ops(foreground_mask)
-
-        cv2.imshow('Foreground Mask', foreground_mask)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        colour_frame = frame
+        # cv2.imshow('Foreground Mask', foreground_mask)
+        # if cv2.waitKey(1) & 0xFF == ord('q'):
+        #     break
     cap.release()
+    # cv2.imshow('Coloured Frame', colour_frame)
+    # cv2.waitKey(0)
 
-    return foreground_mask
+    return foreground_mask, colour_frame
 
 
 def background_subtraction():
     forground_masks = []
+    coloured_images = []
     for cam_id in range(1, 5):
         background_model_path = f'data/cam{cam_id}/background_model.jpg'
         video_path = f'data/cam{cam_id}/video.avi'
@@ -510,8 +512,10 @@ def background_subtraction():
         # Read the background model and convert it to HSV
         background_model = cv2.imread(background_model_path)
         background_model_hsv = cv2.cvtColor(background_model, cv2.COLOR_BGR2HSV)
-        forground_masks.append(subtraction(video_path, background_model_hsv))
-    return forground_masks
+        forground_mask, coloured_image = subtraction(video_path, background_model_hsv)
+        forground_masks.append(forground_mask)
+        coloured_images.append(coloured_image)
+    return forground_masks, coloured_images
 
 
 # def create_lookup_table(voxel_grid, all_camera_configs):
@@ -595,34 +599,36 @@ def create_lut(voxels):
 #     return visible_in_any_camera
 
 
-def check_voxel_visibility(voxel_index, lut, silhouette_masks):
-    visible_in_every_camera = True
+def check_voxel_visibility(voxel_index, lut, silhouette_masks, color_images):
+    colors = []
     for cam_id, points_2d in lut.items():
-        # Adjust cam_id for 0-based indexing when accessing the silhouette_masks array
         adjusted_cam_id = cam_id - 1  # Adjusting cam_id to 0-based index
         point = points_2d[voxel_index]
         x, y = int(point[0]), int(point[1])
 
-        # Ensure the adjusted_cam_id is used for indexing silhouette_masks
         if 0 <= x < silhouette_masks[adjusted_cam_id].shape[1] and 0 <= y < silhouette_masks[adjusted_cam_id].shape[0]:
             if silhouette_masks[adjusted_cam_id][y, x] == 255:
-                pass
-                # break  # No need to check other cameras if visible in one
+                # If the voxel is visible, grab the color from the color image
+                color = color_images[adjusted_cam_id][y, x]
+                colors.append(color)
             else:
-                return False
-        #
-        # if visible_in_any_camera:
-        #     break
+                # If the voxel is not visible in any one of the cameras, it's occluded
+                return None
 
-    return visible_in_every_camera
+    if colors:
+        # If the voxel is visible in at least one camera, return the average color
+        return np.mean(colors, axis=0).astype(int)
+    else:
+        # If the voxel wasn't visible in any camera, it's occluded
+        return None
 
 
-def check_visibility_and_reconstruct(silhouette_masks):
+def check_visibility_and_reconstruct(silhouette_masks, coloured_images):
     # Define the 3D grid (example)
 
-    x_range = np.linspace(-1000, 1000, num=40)
-    y_range = np.linspace(-1000, 1000, num=40)
-    z_range = np.linspace(0, 2000, num=40)
+    x_range = np.linspace(-1000, 1000, num=50)
+    y_range = np.linspace(-1000, 1000, num=50)
+    z_range = np.linspace(0, 2000, num=50)
     voxels = np.array(np.meshgrid(x_range, y_range, z_range)).T.reshape(-1, 3)
     # print(x_range)
     # print(voxels.shape)
@@ -632,25 +638,27 @@ def check_visibility_and_reconstruct(silhouette_masks):
     reconstruction_space = np.zeros((500, 500, 500), dtype=bool)
     # Assuming silhouette_masks is defined
     for voxel_index in range(len(voxels)):
-        x, y, z = voxels[voxel_index]  # Get voxel coordinates (you may need to adjust the mapping based on your grid definition)
+        x, y, z = voxels[
+            voxel_index]  # Get voxel coordinates (you may need to adjust the mapping based on your grid definition)
 
-        if check_voxel_visibility(voxel_index, lookup_table, silhouette_masks):
+        colour = check_voxel_visibility(voxel_index, lookup_table, silhouette_masks, coloured_images)
+        if colour is not None:
             # This voxel is part of the reconstruction
             # print("hello")
 
             # reconstruction_space[voxel_index // (100 * 100), (voxel_index // 100) % 100, voxel_index % 100] = True
             # # Corrected the indexing to reflect the voxel grid setup
-            ix = int((x)/50)
-            iy = int((y)/50)
-            iz = int(z /50)
+            ix = int((x) / 64)
+            iy = int((y) / 64)
+            iz = int(z / 64)
 
             # reconstruction_space[ix, iy, iz] = True
-            visible_points.append([ix, iy, iz])  # Add visible voxel center to the list
+            visible_points.append([ix, iy, iz, *colour])  # Add visible voxel center to the list
             # visible_points.append([x, y, z])
 
     with open("Computer-Vision-3D-Reconstruction/voxels.txt", "w") as file:
         for point in visible_points:
-            file.write(f"{point[0]} {point[1]} {point[2]}\n")
+            file.write(f"{point[0]} {point[1]} {point[2]} {point[3]} {point[4]} {point[5]}\n")
     #
     # # Convert the list of visible points to a NumPy array for easier plotting
     # visible_points = np.array(visible_points)
@@ -669,10 +677,10 @@ def check_visibility_and_reconstruct(silhouette_masks):
 
 def main():
     global corner_points
-    # extrinsic_parameters = {}
+    extrinsic_parameters = {}
     # calibration_parameters = calibrate_cameras()
     # extrinsic_parameters = calculate_extrinsics(calibration_parameters)
-    #
+    # #
     # write_camera_configs('data', calibration_parameters, extrinsic_parameters)
     # all_camera_configs=read_all_camera_configs('data')
 
@@ -681,14 +689,15 @@ def main():
     create_background_models()
 
     # 2. Create a background image
-    foreground_masks = background_subtraction()
+    foreground_masks, coloured_images = background_subtraction()
+    coloured_images = np.array(coloured_images)
     foreground_masks = np.array(foreground_masks)
     # cv2.imshow('Background Model', forground_masks[0])
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()
 
     # 3. Create a background image
-    check_visibility_and_reconstruct(foreground_masks)
+    check_visibility_and_reconstruct(foreground_masks, coloured_images)
 
     # Find Best treshholds
     # video_frame = f'data/cam{1}/frame1.jpg'
