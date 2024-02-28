@@ -498,9 +498,9 @@ def subtraction(video_path, background_model_hsv, ground_image):
         foreground_mask = generate_mask(diff, th_hue, th_sat, th_val)
         foreground_mask = apply_morphological_ops(foreground_mask)
         colour_frame = frame
-        cv2.imshow('Foreground Mask', foreground_mask)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        # cv2.imshow('Foreground Mask', foreground_mask)
+        # if cv2.waitKey(1) & 0xFF == ord('q'):
+        #     break
     cap.release()
     # cv2.imshow('Coloured Frame', colour_frame)
     # cv2.waitKey(0)
@@ -530,11 +530,13 @@ def background_subtraction_parallel():
     def process_camera(cam_id):
         background_model_path = f'data/cam{cam_id}/background_model.jpg'
         video_path = f'data/cam{cam_id}/video.avi'
+        ground_image = f'data/{cam_id}.jpg'
+        ground_image = cv2.imread(ground_image)
 
         # Read the background model and convert it to HSV
         background_model = cv2.imread(background_model_path)
         background_model_hsv = cv2.cvtColor(background_model, cv2.COLOR_BGR2HSV)
-        forground_mask, coloured_image = subtraction(video_path, background_model_hsv)
+        forground_mask, coloured_image = subtraction(video_path, background_model_hsv,ground_image)
 
         return forground_mask, coloured_image
 
@@ -659,9 +661,9 @@ def check_voxel_visibility(voxel_index, lut, silhouette_masks, color_images):
 def check_visibility_and_reconstruct(silhouette_masks, coloured_images):
     # Define the 3D grid (example)
 
-    x_range = np.linspace(-1024, 1024, num=50)
-    y_range = np.linspace(-1024, 1024, num=50)
-    z_range = np.linspace(0, 2048, num=50)
+    x_range = np.linspace(-1024, 1024, num=200)
+    y_range = np.linspace(-1024, 1024, num=200)
+    z_range = np.linspace(0, 2048, num=200)
     voxels = np.array(np.meshgrid(x_range, y_range, z_range)).T.reshape(-1, 3)
     lookup_table = create_lut_parallel(voxels)
 
@@ -675,9 +677,9 @@ def check_visibility_and_reconstruct(silhouette_masks, coloured_images):
         if colour is not None:
             # This voxel is part of the reconstruction
             # # Corrected the indexing to reflect the voxel grid setup
-            ix = int((x) / 64)
-            iy = int((y) / 64)
-            iz = int(z / 64)
+            ix = int((x) / 16)
+            iy = int((y) / 16)
+            iz = int(z / 16)
 
             visible_points.append([ix, iy, iz, *colour])  # Add visible voxel center to the list
 
@@ -685,7 +687,6 @@ def check_visibility_and_reconstruct(silhouette_masks, coloured_images):
         for point in visible_points:
             file.write(f"{point[0]} {point[1]} {point[2]} {point[3]} {point[4]} {point[5]}\n")
 
-# Step 3: Automatic Color Matching
 def match_color_distribution(source_img, reference_img):
     matched_img = np.zeros_like(source_img)
     for channel in range(3):  # For each color channel
@@ -727,7 +728,7 @@ def main():
 
     # 2. Create a background image
 
-    foreground_masks, coloured_images = background_subtraction()
+    foreground_masks, coloured_images = background_subtraction_parallel()
 
     coloured_images = np.array(coloured_images)
     foreground_masks = np.array(foreground_masks)
