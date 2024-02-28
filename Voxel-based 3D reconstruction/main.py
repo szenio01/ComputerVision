@@ -11,6 +11,13 @@ directory = "data"
 DEBUG = False
 
 def create_background_models():
+    """
+    Creates background models for a set of cameras using Gaussian Mixture Models (GMM).
+
+    Returns:
+        dict: A dictionary containing the camera ID as keys and the corresponding
+        background model as values.
+    """
     background_models = {}
     for cam_id in range(1, 5):
         video_path = f'data/cam{cam_id}/background.avi'
@@ -21,6 +28,15 @@ def create_background_models():
     return background_models
 
 def background_subtraction():
+    """
+       Performs background subtraction for a series of videos across different cameras.
+
+       Returns:
+           tuple of lists:
+               - The first list contains the foreground masks for each camera.
+               - The second list contains the coloured images representing the detected
+                 foreground objects for each camera.
+    """
     forground_masks = []
     coloured_images = []
     for cam_id in range(1, 5):
@@ -39,6 +55,15 @@ def background_subtraction():
 
 
 def background_subtraction_parallel():
+    """
+        Performs background subtraction for a series of videos across different cameras.
+
+        Returns:
+            tuple of lists:
+                - The first list contains the foreground masks for each camera.
+                - The second list contains the coloured images representing the detected
+                  foreground objects for each camera.
+    """
     def process_camera(cam_id):
         background_model_path = f'data/cam{cam_id}/background_model.jpg'
         video_path = f'data/cam{cam_id}/video.avi'
@@ -62,6 +87,17 @@ def background_subtraction_parallel():
     return forground_masks, coloured_images
 
 def create_lut(voxels):
+    """
+    Creates a Look-Up Table (LUT) mapping 3D voxels to 2D points for each camera.
+
+    Parameters:
+        voxels (array-like): An array-like structure containing the 3D coordinates of the
+                             voxels to be projected.
+
+    Returns:
+        dict: A dictionary where keys are camera IDs and values are lists of 2D projections
+              of the 3D voxels for each camera.
+    """
     lut = {}
     for cam_id in range(1, 5):
         config_path = f"parameters/cam{cam_id}/camera_properties.xml"
@@ -76,6 +112,15 @@ def create_lut(voxels):
 
 
 def create_lut_parallel(voxels):
+    """
+    Creates a Look-Up Table (LUT) mapping 3D voxels to 2D points for each camera in parallel.
+
+    Parameters:
+        voxels: The 3D coordinates of the voxels to be projected.
+
+    Returns:
+        A dictionary where keys are camera IDs and values are the 2D projections of the 3D voxels.
+    """
     def process_camera(cam_id):
         config_path = f"parameters/cam{cam_id}/camera_properties.xml"
         camera_matrix, dist_coeffs, rvec, tvec = parse_camera_config_from_file(config_path)
@@ -96,6 +141,19 @@ def create_lut_parallel(voxels):
 
 
 def check_voxel_visibility(voxel_index, lut, silhouette_masks, color_images):
+    """
+    Determines the visibility of a voxel across multiple cameras and calculates its average color.
+
+    Parameters:
+        voxel_index: Index of the voxel to check visibility for.
+        lut: Look-Up Table mapping camera IDs to 2D points of voxels.
+        silhouette_masks: List of binary silhouette masks from each camera.
+        color_images: List of color images from each camera.
+
+    Returns:
+        The average color of the voxel as seen in all cameras (if visible) as [R, G, B],
+        or None if the voxel is not visible in at least one camera.
+    """
     colors = []
     for cam_id, points_2d in lut.items():
         adjusted_cam_id = cam_id - 1  #
@@ -120,6 +178,16 @@ def check_voxel_visibility(voxel_index, lut, silhouette_masks, color_images):
 
 
 def check_visibility_and_reconstruct(silhouette_masks, coloured_images):
+    """
+    Processes a 3D space to identify visible voxels and save their positions and colors.
+
+    Parameters:
+        silhouette_masks: List of binary silhouette masks from each camera, indicating visible areas.
+        coloured_images: List of color images from each camera, used to determine the color of visible voxels.
+
+    Outputs:
+        A text file ("parameters/voxels.txt") listing the corrected indices and colors of all visible voxels.
+    """
     # Define the 3D grid
     x_range = np.linspace(-1024, 1024, num=200)
     y_range = np.linspace(-1024, 1024, num=200)
@@ -146,9 +214,13 @@ def check_visibility_and_reconstruct(silhouette_masks, coloured_images):
         for point in visible_points:
             file.write(f"{point[0]} {point[1]} {point[2]} {point[3]} {point[4]} {point[5]}\n")
     print("Voxels saved in parameters/voxels.txt")
+
+
 def main():
     global corner_points
     extrinsic_parameters = {}
+    ## Task 1: Calibration
+
     if DEBUG:
         calibration_parameters = calibrate_cameras()
         extrinsic_parameters = calculate_extrinsics(calibration_parameters)
@@ -156,7 +228,7 @@ def main():
         write_camera_configs('parameters', calibration_parameters, extrinsic_parameters)
         all_camera_configs = read_all_camera_configs('parameters')
 
-    # Task 2. Background subtraction
+    ## Task 2: Background subtraction
     # 1. Create a background image
     print("Creating Backround Models: ")
     create_background_models()
@@ -169,9 +241,10 @@ def main():
     print("Colour Correction of images: ")
     coloured_images_corrected, foreground_masks = correct_images(coloured_images, foreground_masks)
 
-    # 4. Task 3: Check visibility and construct voxels
+    ## Task 3: Check visibility and construct voxels
     print("Look up table creation and voxel visibility check:")
     check_visibility_and_reconstruct(foreground_masks, coloured_images_corrected)
+
 
 if __name__ == "__main__":
     main()

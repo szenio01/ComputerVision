@@ -6,6 +6,8 @@ square_size = 115.0
 objp = np.zeros((chessboard_size[1] * chessboard_size[0], 3), np.float32)
 objp[:, :2] = np.mgrid[0:chessboard_size[0], 0:chessboard_size[1]].T.reshape(-1, 2)
 objp *= square_size
+
+
 def mean_error(objpoints, imgpoints, mtx, dist, rvecs, tvecs):
     """
       Computes the mean reprojection error of a camera calibration.
@@ -30,6 +32,14 @@ def mean_error(objpoints, imgpoints, mtx, dist, rvecs, tvecs):
 
 
 def write_camera_configs(directory, calibration_parameters, extrinsic_parameters):
+    """
+    Writes camera configuration parameters to XML files.
+
+    Parameters:
+        directory: The base directory where the XML files will be saved.
+        calibration_parameters: A dictionary containing the intrinsic parameters for each camera.
+        extrinsic_parameters: A dictionary containing the extrinsic parameters for each camera.
+    """
     for cam_id, intrinsic_params in calibration_parameters.items():
         extrinsic_params = extrinsic_parameters.get(cam_id, {})
 
@@ -64,6 +74,16 @@ def write_camera_configs(directory, calibration_parameters, extrinsic_parameters
         tree.write(f"{directory}/cam{cam_id}/camera_properties.xml")
 
 def read_all_camera_configs(directory):
+    """
+    Reads camera configuration parameters from XML files for all cameras.
+
+    Parameters:
+        directory: The base directory from which the XML files will be read.
+
+    Returns:
+        A dictionary containing the camera configurations, indexed by camera ID. Each entry
+        contains nested dictionaries for 'intrinsics' and 'extrinsics' parameters.
+    """
     all_camera_configs = {}
     for cam_id in range(1, 5):  # Adjust the range based on the number of cameras
         config_path = f"{directory}/cam{cam_id}/camera_properties.xml"
@@ -102,6 +122,8 @@ def read_all_camera_configs(directory):
             print(f"Configuration file for camera {cam_id} not found.")
 
     return all_camera_configs
+
+
 def automatic_corner_detection(img, criteria, chessboard_size, showboard=False):
     """
     Automatically detects corners of a chessboard pattern on an image.
@@ -189,7 +211,19 @@ def find_corners(img, points, chessboard_size):
 
     return img, all_points_np
 
+
 def match_color_distribution(source_img, reference_img):
+    """
+    Matches the color distribution of the source image to that of the reference image.
+
+    Parameters:
+        source_img: The source image whose color distribution is to be adjusted.
+        reference_img: The reference image with the desired color distribution.
+
+    Returns:
+        An image (numpy array) with the color distribution of the source image
+        matched to that of the reference image.
+    """
     matched_img = np.zeros_like(source_img)
     for channel in range(3):  # For each color channel
         source_mean, source_std = cv2.meanStdDev(source_img[:, :, channel])
@@ -202,6 +236,15 @@ def match_color_distribution(source_img, reference_img):
 
 
 def white_balance(img):
+    """
+    Applies a simple white balance algorithm to an image.
+
+    Parameters:
+        img: The source image to be white balanced.
+
+    Returns:
+        A white balanced image as a numpy array of type uint8.
+    """
     # Convert image to float32 for processing
     img_float = img.astype(np.float32)
     # Calculate the average of each channel (R, G, B)
@@ -218,6 +261,18 @@ def white_balance(img):
 
 
 def correct_images(coloured_images, foreground_masks):
+    """
+      Corrects a set of colored images for white balance and color distribution.
+
+      Parameters:
+          coloured_images: A list of colored images (numpy arrays) to be corrected.
+          foreground_masks: A list of binary foreground masks corresponding to the coloured images.
+
+      Returns:
+          A tuple containing:
+          - A list of color and white balance corrected images.
+          - The original list of foreground masks, unchanged.
+      """
     coloured_images = np.array(coloured_images)
     foreground_masks = np.array(foreground_masks)
     # Apply white balance
@@ -226,6 +281,7 @@ def correct_images(coloured_images, foreground_masks):
     # Apply color matching
     coloured_images_corrected = [match_color_distribution(img, reference_image) for img in white_balanced_images]
     return coloured_images_corrected, foreground_masks
+
 
 def online_phase(test_img, objp, mtx, dist, rvec, tvec):
     """
@@ -282,6 +338,14 @@ def draw_circle(event, x, y, flags, param):
 
 
 def calibrate_cameras():
+    """
+       Calibrates cameras based on chessboard patterns found in video sequences.
+
+
+       Returns:
+           A dictionary containing the calibration parameters ('mtx', 'dist', 'rvecs', 'tvecs')
+           for each camera, keyed by camera ID.
+    """
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
     calibration_params = {}
     # Loop to calibrate for each camera
@@ -339,6 +403,18 @@ def calibrate_cameras():
 
 
 def calculate_extrinsics(calibration_parameters):
+    """
+       Calculates extrinsic parameters for each camera based on user-selected corner points.
+
+       Parameters:
+           calibration_parameters: A dictionary containing the intrinsic calibration parameters
+                                   for each camera, including the camera matrix and distortion
+                                   coefficients.
+
+       Returns:
+           A dictionary containing the extrinsic parameters (rotation and translation vectors)
+           for each camera, keyed by camera ID.
+    """
     global corner_points, img
     extrinsic_parameters = {}
 
@@ -381,6 +457,16 @@ def calculate_extrinsics(calibration_parameters):
     return extrinsic_parameters
 
 def create_background_model_with_GMM(video_path):
+    """
+    Creates a background model using Gaussian Mixture Models (GMM) from a video.
+
+    Parameters:
+        video_path: The path to the video file from which the background model is created.
+
+    Returns:
+        The background model as an image, where each pixel represents the background
+        probability.
+    """
     cap = cv2.VideoCapture(video_path)
     # Create the background subtractor object
     backSub = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=16, detectShadows=True)
@@ -396,6 +482,17 @@ def create_background_model_with_GMM(video_path):
     return background_model
 
 def subtraction(video_path, background_model_hsv, ground_image):
+    """
+    Subtracts the background from video frames using a pre-calculated background model in HSV.
+
+    Parameters:
+        video_path: Path to the input video file.
+        background_model_hsv: The background model in HSV color space.
+        ground_image: An image used for optimizing foreground segmentation thresholds.
+
+    Returns:
+        A tuple containing the final foreground mask and the last color frame processed.
+    """
     cap = cv2.VideoCapture(video_path)
     frame_diffs = []
     colour_frame = None
@@ -429,6 +526,18 @@ def subtraction(video_path, background_model_hsv, ground_image):
     return foreground_mask, colour_frame
 
 def optimize_thresholds(video_frame, ground_truth):
+    """
+        Optimizes the thresholds for hue, saturation, and value to minimize the discrepancy
+        between the generated mask and the ground truth.
+
+        Parameters:
+            video_frame: The video frame (in HSV color space) to be thresholded.
+            ground_truth: The ground truth image to compare against the generated mask.
+
+        Returns:
+            A tuple containing the optimal thresholds for hue, saturation, and value.
+    """
+
     optimal_thresholds = None
     minimal_discrepancies = float('inf')
 
@@ -450,6 +559,17 @@ def optimize_thresholds(video_frame, ground_truth):
 
 
 def evaluate_segmentation(mask, ground_truth_mask):
+    """
+    Evaluates the segmentation quality by comparing a mask against a ground truth mask.
+
+    Parameters:
+        mask: The segmentation mask generated from the image processing.
+        ground_truth_mask: The ground truth mask for comparison.
+
+    Returns:
+        The number of discrepant pixels between the generated mask and the ground truth,
+        indicating the level of segmentation error.
+    """
     ground_truth_mask = np.array(ground_truth_mask)
     ground_truth_mask = cv2.cvtColor(ground_truth_mask, cv2.COLOR_BGR2GRAY)
     # Calculate the XOR to find differences
@@ -460,6 +580,15 @@ def evaluate_segmentation(mask, ground_truth_mask):
 
 
 def apply_morphological_ops(foreground_mask):
+    """
+        Cleans up a foreground mask using morphological operations.
+
+        Parameters:
+            foreground_mask: The binary mask representing detected foreground objects.
+
+        Returns:
+            The cleaned binary mask after applying the morphological operations.
+    """
     # Apply morphological operations to clean up the mask
     kernel = np.ones((2, 2), np.uint8)
     foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_OPEN, kernel)
@@ -469,7 +598,20 @@ def apply_morphological_ops(foreground_mask):
     foreground_mask = cv2.morphologyEx(foreground_mask, cv2.MORPH_OPEN, kernel)
     return foreground_mask
 
+
 def generate_mask(diff, th_hue, th_sat, th_val):
+    """
+       Generates a foreground mask by applying individual thresholds to the hue, saturation, and value channels.
+
+       Parameters:
+           diff: The difference image in HSV color space.
+           th_hue: The threshold value for the hue channel.
+           th_sat: The threshold value for the saturation channel.
+           th_val: The threshold value for the value channel.
+
+       Returns:
+           A binary mask representing the detected foreground areas.
+       """
     # Apply thresholding
     _, thresh_hue = cv2.threshold(diff[:, :, 0], th_hue, 255, cv2.THRESH_BINARY)
     _, thresh_saturation = cv2.threshold(diff[:, :, 1], th_sat, 255, cv2.THRESH_BINARY)
@@ -480,7 +622,21 @@ def generate_mask(diff, th_hue, th_sat, th_val):
     foreground_mask = cv2.bitwise_and(foreground_mask, thresh_value)
     return foreground_mask
 
+
 def parse_camera_config_from_file(config_path):
+    """
+        Parses camera configuration parameters from an XML file.
+
+        Parameters:
+            config_path: The file path to the XML configuration file.
+
+        Returns:
+            A tuple containing:
+            - The camera matrix as a numpy array.
+            - The distortion coefficients as a numpy array.
+            - The rotation vector as a numpy array.
+            - The translation vector as a numpy array.
+    """
     # Load and parse the XML file
     tree = ET.parse(config_path)
     root = tree.getroot()
@@ -505,5 +661,18 @@ def parse_camera_config_from_file(config_path):
 
 
 def project_to_2d(points_3d, camera_matrix, dist_coeffs, rvec, tvec):
+    """
+     Projects 3D points onto a 2D image plane using camera parameters.
+
+     Parameters:
+         points_3d: An array of 3D points to be projected.
+         camera_matrix: The camera matrix (intrinsic parameters).
+         dist_coeffs: The distortion coefficients of the camera.
+         rvec: The rotation vector of the camera.
+         tvec: The translation vector of the camera.
+
+     Returns:
+         An array of 2D points representing the projection of the 3D points onto the image plane.
+     """
     points_2d, _ = cv2.projectPoints(points_3d, rvec, tvec, camera_matrix, dist_coeffs)
     return points_2d.reshape(-1, 2)
