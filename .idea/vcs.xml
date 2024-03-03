@@ -2,6 +2,8 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Color-based voxel labeling" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/Computer-Vision-3D-Reconstruction-Solution" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/Voxel-based 3D reconstruction/Computer-Vision-3D-Reconstruction" vcs="Git" />
   </component>
 </project>
