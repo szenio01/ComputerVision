@@ -4,7 +4,7 @@ import random
 import numpy as np
 import cv2 as cv
 import matplotlib.pyplot as plt
-
+from scipy.optimize import linear_sum_assignment
 # global variables
 block_size = 1.0
 voxel_size = 60.0  # voxel every 3cm
@@ -31,7 +31,7 @@ def set_voxel_positions(width, height, depth, curr_time):
 
     # initialize voxel list
     voxel_list = []
-    print(curr_time)
+    print("Frame: ", curr_time)
     # swap y and z
     voxel_grid = np.ones((width, depth, height), np.float32)
 
@@ -374,3 +374,99 @@ def visualize_color_models(color_models):
             plt.show()
         else:
             print(f'No color model available for Cluster {cluster_index}')
+
+
+def plot_color_models_with_image(color_models):
+    num_clusters = len(color_models)
+
+    # Plot each cluster's color model alongside the original image
+    for cluster_index, hist in enumerate(color_models):
+        if hist is not None:
+            plt.figure(figsize=(12, 6))
+
+            # Plot histograms for each color channel
+            plt.subplot(1, 1, 1)
+            colors = ['red', 'green', 'blue']
+            for i, color in enumerate(colors):
+                plt.plot(hist[i], color=color, label=f'{color.capitalize()} Channel')
+            plt.title(f'Color Model for Cluster {cluster_index}')
+            plt.xlabel('Intensity')
+            plt.ylabel('Frequency')
+            plt.legend()
+
+            plt.tight_layout()
+            plt.show()
+        else:
+            print(f'No color model available for Cluster {cluster_index}')
+
+
+#---------------------------ONLINE PHASE FUNCTIONS---------------------------------
+
+# FIRST TRY
+def calculate_distance(model1, model2):
+    # Assuming model1 and model2 are numpy arrays with shape (num_clusters, num_channels, num_bins)
+    # and that the last dimension (with size 1) has been removed or was never there.
+    model1 = np.array(model1)
+    model2 = np.array(model2)
+    distance_sum = 0
+
+    # Assuming the second dimension is the number of color channels
+    num_clusters, num_channels, _ = model1.shape
+
+    # Calculate the distance for each channel of each cluster
+    for cluster_index in range(num_clusters):
+        for channel_index in range(num_channels):
+            hist1 = model1[cluster_index, channel_index, :].astype('float32')
+            hist2 = model2[cluster_index, channel_index, :].astype('float32')
+
+            # Calculate Bhattacharyya distance for the histograms
+            distance = cv.compareHist(hist1, hist2, cv.HISTCMP_BHATTACHARYYA)
+            distance_sum += distance
+
+    # Average the distances
+    avg_distance = distance_sum / (num_clusters * num_channels)
+    return avg_distance
+
+
+def match_online_to_offline(online_models, offline_models):
+    model1 = np.array(offline_models)
+    print(model1.shape)
+    # print(len(offline_models))
+    # Calculate the distance matrix
+    num_online, num_offline = len(online_models), len(offline_models)
+    distance_matrix = np.zeros((num_online, num_offline))
+    print(distance_matrix.shape)
+    for i, online_model in enumerate(online_models):
+        for j, offline_model in enumerate(offline_models):
+            distance_matrix[i, j] = calculate_distance(online_model, offline_model)
+
+    # Apply the Hungarian algorithm
+    online_indices, offline_indices = linear_sum_assignment(distance_matrix)
+
+    # Map online to offline indices
+    matches = dict(zip(online_indices, offline_indices))
+    return matches
+
+
+# SECOND TRY: for finding the distance
+def calculate_distance(histA, histB):
+    distance = 0
+    # Assuming histA and histB are for the same cluster but different instances (offline vs online)
+    for channel in range(histA.shape[1]):  # Iterate through each color channel
+        distance += cv.compareHist(histA[0, channel], histB[0, channel], cv.HISTCMP_BHATTACHARYYA)
+    return distance / histA.shape[1]  # Average distance across channels
+
+
+def calculate_all_distances(online_models, offline_models):
+    online_models = np.array(online_models)
+    offline_models = np.array(offline_models)
+    num_clusters = online_models.shape[0]
+    distance_matrix = np.zeros((num_clusters, num_clusters))
+    for i in range(num_clusters):
+        for j in range(num_clusters):
+            distance_matrix[i, j] = calculate_distance(online_models[i], offline_models[j])
+    # Calculate all distances
+    row_ind, col_ind = linear_sum_assignment(distance_matrix)
+    return dict(zip(row_ind, col_ind))
+
+

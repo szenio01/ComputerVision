@@ -9,7 +9,7 @@ from engine.buffer.blurbuffer import BlurBuffer
 from engine.effect.bloom import Bloom
 from assignment import set_voxel_positions, generate_grid, get_cam_positions, get_cam_rotation_matrices, \
     cluster_voxel_positions, plot_clusters, check_cluster_separation, process_frame_for_color_models, \
-    visualize_color_models
+    visualize_color_models, plot_color_models_with_image, match_online_to_offline,calculate_all_distances
 from engine.camera import Camera
 from engine.config import config
 
@@ -18,7 +18,7 @@ firstTime = True
 window_width, window_height = config['window_width'], config['window_height']
 camera = Camera(glm.vec3(0, 100, 0), pitch=-90, yaw=0, speed=40)
 curr_time = 0
-
+color_models_offline = [None] * 4
 
 def draw_objs(obj, program, perspective, light_pos, texture, normal, specular, depth):
     program.use()
@@ -186,49 +186,111 @@ def resize_callback(window, w, h):
 def key_callback(window, key, scancode, action, mods):
     if key == glfw.KEY_ESCAPE and action == glfw.PRESS:
         glfw.set_window_should_close(window, glfw.TRUE)
+
     if key == glfw.KEY_G and action == glfw.PRESS:
-        global cube, curr_time
-        positions, colors = set_voxel_positions(config['world_width'], config['world_height'], config['world_width'],
-                                                curr_time)
+        global cube, curr_time, color_models_offline
+        if curr_time == 0:
+            print("OFFLINE PHASE")
+            positions, colors = set_voxel_positions(config['world_width'], config['world_height'], config['world_width'],
+                                                    curr_time)
 
-        # k means and labels for each voxel
-        labels, centers, voxel_positions_xz = cluster_voxel_positions(positions)
-        plot_clusters(voxel_positions_xz, labels, centers)
+            # k means and labels for each voxel
+            labels, centers, voxel_positions_xz = cluster_voxel_positions(positions)
+            # plot_clusters(voxel_positions_xz, labels, centers)
 
-        # Filter positions based on the height to remove the trousers that don't have distinct colors
-        filtered_positions = [pos for pos in positions if pos[1] > 20]
-        filtered_colors = [[1, 0, 0] for pos in positions if pos[1] > 20]
-        filtered_indices = [i for i, pos in enumerate(positions) if pos[1] > 20]
-        filtered_labels = [labels[i] for i in filtered_indices]
-        filtered_labels = np.array(filtered_labels)
+            # Filter positions based on the height to remove the trousers that don't have distinct colors
+            filtered_positions = [pos for pos in positions if pos[1] > 20]
+            filtered_colors = [[1, 0, 0] for pos in positions if pos[1] > 20]
+            filtered_indices = [i for i, pos in enumerate(positions) if pos[1] > 20]
+            filtered_labels = [labels[i] for i in filtered_indices]
+            filtered_labels = np.array(filtered_labels)
 
-        color_models = process_frame_for_color_models(frame_number=curr_time, voxel_positions=filtered_positions,
-                                                      labels=filtered_labels, K=4,
-                                                      camera_indices=[0])
+            color_models_offline = process_frame_for_color_models(frame_number=curr_time, voxel_positions=filtered_positions,
+                                                          labels=filtered_labels, K=4,
+                                                          camera_indices=[0])
 
-        visualize_color_models(color_models)
-        new_colors = []
-        for i in labels:
-            if i[0] == 0:
-                new_colors.append([1, 0, 0])
-            elif i[0] == 1:
-                new_colors.append([0, 1, 0])
-            elif i[0] == 2:
-                new_colors.append([0, 0, 1])
-            elif i[0] == 3:
-                new_colors.append([0, 1, 1])
+            # visualize_color_models(color_models_offline)
+            # plot_color_models_with_image(color_models_offline)
+            new_colors = []
+            for i in labels:
+                if i[0] == 0:
+                    new_colors.append([1, 0, 0])
+                elif i[0] == 1:
+                    new_colors.append([0, 1, 0])
+                elif i[0] == 2:
+                    new_colors.append([0, 0, 1])
+                elif i[0] == 3:
+                    new_colors.append([0, 1, 1])
 
-        # Check if clusters are close (stuck in a local minimum)
-        check_cluster_separation(centers, threshold=10.0)
-        too_close = check_cluster_separation(centers)
-        if too_close:
-            print("Some clusters are too close to each other.")
+            # Check if clusters are close (stuck in a local minimum)
+            check_cluster_separation(centers, threshold=10.0)
+            too_close = check_cluster_separation(centers)
+            if too_close:
+                print("Some clusters are too close to each other.")
+            else:
+                print("Clusters are adequately separated.")
+
+            curr_time += 1
+            cube.set_multiple_positions(positions, new_colors)
         else:
-            print("Clusters are adequately separated.")
+            print("ONLINE PHASE")
+            # Process the current frame to re-cluster and generate new color models
+            positions, _ = set_voxel_positions(config['world_width'], config['world_height'], config['world_width'],
+                                               curr_time)
+            labels, centers, voxel_positions_xz = cluster_voxel_positions(positions)
 
-        curr_time += 1000
-        cube.set_multiple_positions(positions, new_colors)
+            # Filter positions based on height, similar to offline phase for consistency
+            filtered_positions = [pos for pos in positions if pos[1] > 20]
+            filtered_colors = [[1, 0, 0] for pos in positions if pos[1] > 20]
+            filtered_indices = [i for i, pos in enumerate(positions) if pos[1] > 20]
+            filtered_labels = [labels[i] for i in filtered_indices]
+            filtered_labels = np.array(filtered_labels)
 
+            # Assuming `process_frame_for_color_models` can be reused for the online phase
+            color_models_online = process_frame_for_color_models(frame_number=curr_time,
+                                                                 voxel_positions=filtered_positions,
+                                                                 labels=filtered_labels, K=4, camera_indices=[0])
+
+            # Now, match the newly created online color models to the offline ones
+            # first try
+            # matches = match_online_to_offline(color_models_online, color_models_offline)
+            # print(matches)
+            # Second try
+            matches = calculate_all_distances(color_models_online, color_models_offline)
+            print("online: offline - ", matches)
+
+            new_colors = []
+            labels_new = []
+            for i in labels:
+                if i[0] == 0:
+                    labels_new.append([matches[0]])
+                if i[0] == 1:
+                    labels_new.append([matches[1]])
+                if i[0] == 2:
+                    labels_new.append([matches[2]])
+                if i[0] == 3:
+                    labels_new.append([matches[3]])
+
+            for i in labels_new:
+                if i[0] == 0:
+                    new_colors.append([1, 0, 0])
+                elif i[0] == 1:
+                    new_colors.append([0, 1, 0])
+                elif i[0] == 2:
+                    new_colors.append([0, 0, 1])
+                elif i[0] == 3:
+                    new_colors.append([0, 1, 1])
+
+            # Check if clusters are close (stuck in a local minimum)
+            check_cluster_separation(centers, threshold=10.0)
+            too_close = check_cluster_separation(centers)
+            if too_close:
+                print("Some clusters are too close to each other.")
+            else:
+                print("Clusters are adequately separated.")
+
+            curr_time += 1
+            cube.set_multiple_positions(positions, new_colors)
 
 def mouse_move(win, pos_x, pos_y):
     global firstTime, camera, lastPosX, lastPosY
