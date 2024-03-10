@@ -7,8 +7,8 @@ from engine.buffer.texture import *
 from engine.buffer.hdrbuffer import HDRBuffer
 from engine.buffer.blurbuffer import BlurBuffer
 from engine.effect.bloom import Bloom
-from assignment import set_voxel_positions, generate_grid, get_cam_positions, get_cam_rotation_matrices,\
-    cluster_voxel_positions, plot_clusters, check_cluster_separation, process_frame_for_color_models,\
+from assignment import set_voxel_positions, generate_grid, get_cam_positions, get_cam_rotation_matrices, \
+    cluster_voxel_positions, plot_clusters, check_cluster_separation, process_frame_for_color_models, \
     visualize_color_models
 from engine.camera import Camera
 from engine.config import config
@@ -188,13 +188,12 @@ def key_callback(window, key, scancode, action, mods):
         glfw.set_window_should_close(window, glfw.TRUE)
     if key == glfw.KEY_G and action == glfw.PRESS:
         global cube, curr_time
-        positions, colors = set_voxel_positions(config['world_width'], config['world_height'], config['world_width'], curr_time)
-
+        positions, colors = set_voxel_positions(config['world_width'], config['world_height'], config['world_width'],
+                                                curr_time)
 
         # k means and labels for each voxel
         labels, centers, voxel_positions_xz = cluster_voxel_positions(positions)
-        # plot_clusters(voxel_positions_xz, labels, centers)
-
+        plot_clusters(voxel_positions_xz, labels, centers)
 
         # Filter positions based on the height to remove the trousers that don't have distinct colors
         filtered_positions = [pos for pos in positions if pos[1] > 20]
@@ -203,8 +202,9 @@ def key_callback(window, key, scancode, action, mods):
         filtered_labels = [labels[i] for i in filtered_indices]
         filtered_labels = np.array(filtered_labels)
 
-        color_models = process_frame_for_color_models(frame_number=1, voxel_positions=filtered_positions, labels=filtered_labels, K=4,
-                                       camera_indices=[0])
+        color_models = process_frame_for_color_models(frame_number=curr_time, voxel_positions=filtered_positions,
+                                                      labels=filtered_labels, K=4,
+                                                      camera_indices=[0])
 
         visualize_color_models(color_models)
         new_colors = []
@@ -218,8 +218,7 @@ def key_callback(window, key, scancode, action, mods):
             elif i[0] == 3:
                 new_colors.append([0, 1, 1])
 
-
-        #Check if clusters are close (stuck in a local minimum)
+        # Check if clusters are close (stuck in a local minimum)
         check_cluster_separation(centers, threshold=10.0)
         too_close = check_cluster_separation(centers)
         if too_close:
@@ -227,8 +226,8 @@ def key_callback(window, key, scancode, action, mods):
         else:
             print("Clusters are adequately separated.")
 
-        curr_time += 1
-        cube.set_multiple_positions(positions, colors)
+        curr_time += 1000
+        cube.set_multiple_positions(positions, new_colors)
 
 
 def mouse_move(win, pos_x, pos_y):
