@@ -1,4 +1,5 @@
 import os
+
 os.environ['OMP_NUM_THREADS'] = '1'
 import glm
 import random
@@ -219,6 +220,51 @@ def cluster_voxel_positions(voxel_locations):
 
     return labels, centers, voxel_positions_xz
 
+def compute_distance_threshold(filtered_positions, filtered_labels):
+    distances = []
+    filtered_positions_np = np.array(filtered_positions)
+    for label in np.unique(filtered_labels):
+        # Find indices where the label matches
+        indices = np.where(filtered_labels == label)[0]
+        # Select positions for the current cluster
+        cluster_positions = filtered_positions_np[indices, :]
+
+        # Calculate the cluster center (consider only x and z coordinates for distance)
+        cluster_center = np.mean(cluster_positions[:, [0, 2]], axis=0)
+
+        # Compute distances from each voxel to the cluster center
+        for pos in cluster_positions:
+            distance = np.linalg.norm(pos[[0, 2]] - cluster_center)
+            distances.append(distance)
+
+    # Define the threshold as the mean plus two standard deviations of the distances
+    threshold = np.mean(distances) + 2 * np.std(distances)
+    return threshold
+
+def filter_ghost_voxels(filtered_positions, filtered_labels):
+    new_positions = []
+    new_labels = []
+
+    filtered_positions_np = np.array(filtered_positions)
+    distance_threshold = compute_distance_threshold(filtered_positions, filtered_labels)
+
+    for label in np.unique(filtered_labels):
+        # Find indices where the label matches
+        indices = np.where(filtered_labels == label)[0]
+        # Select positions for the current cluster
+        cluster_positions = filtered_positions_np[indices, :]
+
+        # Calculate the cluster center (consider only x and z coordinates for distance)
+        cluster_center = np.mean(cluster_positions[:, [0, 2]], axis=0)
+
+        # Filter out ghost voxels based on the distance threshold
+        for i, pos in enumerate(cluster_positions):
+            distance = np.linalg.norm(pos[[0, 2]] - cluster_center)
+            if distance <= distance_threshold:
+                new_positions.append(pos.tolist())
+                new_labels.append(label)
+
+    return new_positions, new_labels
 
 def plot_clusters(voxel_positions, labels, centers):
     """
@@ -321,14 +367,16 @@ def extract_color_features(image, voxel_positions, num_components=3):
     :return: GaussianMixture object representing the color model, or None if not enough data.
     """
     height, width, _ = image.shape
-    colors = np.array([image[min(max(int(y), 0), height-1), min(max(int(x), 0), width-1)] for x, y in voxel_positions])
+    colors = np.array(
+        [image[min(max(int(y), 0), height - 1), min(max(int(x), 0), width - 1)] for x, y in voxel_positions])
 
     # Ensure we use only unique colors to avoid issues with duplicate points
     unique_colors = np.unique(colors, axis=0)
 
     # If there are not enough unique samples to fit the GMM, return None
     if unique_colors.shape[0] < num_components:
-        print(f"Not enough unique samples to fit a GMM for the given cluster. Required: {num_components}, but got: {unique_colors.shape[0]}.")
+        print(
+            f"Not enough unique samples to fit a GMM for the given cluster. Required: {num_components}, but got: {unique_colors.shape[0]}.")
         return None
 
     # Fit a GMM with a number of components up to the number of unique color samples
@@ -336,6 +384,7 @@ def extract_color_features(image, voxel_positions, num_components=3):
     gmm = GaussianMixture(n_components=n_components, covariance_type='full', random_state=0)
     gmm.fit(unique_colors)
     return gmm
+
 
 def assign_voxels_to_persons(image, voxel_positions, gmm_models):
     """
@@ -399,6 +448,7 @@ def process_frame_for_color_models_GMM(frame_number, voxel_positions, labels, K,
                     pass  # Placeholder for potential combination logic
 
     return gmm_color_models
+
 
 def process_frame_for_color_models(frame_number, voxel_positions, labels, K, camera_indices=[0]):
     """
@@ -493,7 +543,7 @@ def plot_color_models_with_image(color_models):
             print(f'No color model available for Cluster {cluster_index}')
 
 
-#---------------------------ONLINE PHASE FUNCTIONS---------------------------------
+# ---------------------------ONLINE PHASE FUNCTIONS---------------------------------
 
 # FIRST TRY
 def calculate_distance(model1, model2):
@@ -569,29 +619,44 @@ def calculate_all_distances(online_models, offline_models):
 
 def calculate_distanceGMM(gmm1, gmm2):
     """
-    Calculate a simplified distance metric between two GMMs based on the Euclidean distance of their component means.
+    Calculate the KL-divergence between two GMMs.
 
     Parameters:
     - gmm1, gmm2: GaussianMixture objects
 
     Returns:
-    - distance: A scalar distance between gmm1 and gmm2
+    - kl_div: KL-divergence between gmm1 and gmm2
     """
-
     if gmm1 is None or gmm2 is None:
         print("One of the GMMs is None. Skipping distance calculation.")
         return 1e6
-    means1 = gmm1.means_
-    means2 = gmm2.means_
 
-    # Calculate the pairwise Euclidean distances between all pairs of means
-    distances = cdist(means1, means2, 'euclidean')
+    # Extract means, covariances, and weights of components from both GMMs
+    means1, covariances1, weights1 = gmm1.means_, gmm1.covariances_, gmm1.weights_
+    means2, covariances2, weights2 = gmm2.means_, gmm2.covariances_, gmm2.weights_
 
-    # Take the average of the minimum distances for each component in gmm1 to a component in gmm2
-    min_distances = np.min(distances, axis=1)
-    distance = np.mean(min_distances)
+    # Calculate the KL-divergence for each component in gmm1 relative to components in gmm2
+    kl_div_components = []
+    for mean1, cov1, weight1 in zip(means1, covariances1, weights1):
+        kl_div_per_component = []
+        for mean2, cov2, weight2 in zip(means2, covariances2, weights2):
+            # Calculate KL-divergence between two Gaussian distributions
+            kl_div = 0.5 * (np.log(np.linalg.det(cov2) / np.linalg.det(cov1)) -
+                            gmm1.means_.shape[1] +
+                            np.trace(np.linalg.inv(cov2) @ cov1) +
+                            ((mean2 - mean1) @ np.linalg.inv(cov2) @ (mean2 - mean1).T))
+            kl_div += 0.5 * (np.dot(np.dot((mean2 - mean1).T, np.linalg.inv(cov2)), (mean2 - mean1)) +
+                             np.log(np.linalg.det(cov2) / np.linalg.det(cov1)) -
+                             gmm1.means_.shape[1])
+            # Weight the KL-divergence by the weight of the component in gmm1
+            kl_div_per_component.append(kl_div * weight1)
+        # Sum the weighted KL-divergences for the component in gmm1
+        kl_div_components.append(sum(kl_div_per_component))
 
-    return distance
+    # Sum the KL-divergences across all components
+    kl_div = sum(kl_div_components)
+
+    return kl_div
 
 
 def calculate_all_distancesGMM(online_models, offline_models):
@@ -664,5 +729,3 @@ def calculate_all_distances(online_models, offline_models):
     # Calculate all distances
     row_ind, col_ind = linear_sum_assignment(distance_matrix)
     return dict(zip(row_ind, col_ind))
-
-
