@@ -729,3 +729,34 @@ def calculate_all_distances(online_models, offline_models):
     # Calculate all distances
     row_ind, col_ind = linear_sum_assignment(distance_matrix)
     return dict(zip(row_ind, col_ind))
+
+
+def match_clusters_by_proximity(prev_centers, new_centers):
+    """
+    Matches new cluster centers to previous ones based on the minimum Euclidean distance.
+
+    Parameters:
+    - prev_centers: NumPy array of previous frame's cluster centers (shape: [num_clusters, 2 or 3]).
+    - new_centers: NumPy array of current frame's cluster centers (shape: [num_clusters, 2 or 3]).
+
+    Returns:
+    - matches: A list of tuples, where each tuple contains (prev_cluster_index, new_cluster_index)
+               indicating the matching of new cluster centers to previous ones.
+    """
+    # Calculate all pairwise Euclidean distances between previous and new centers
+    distances = cdist(prev_centers, new_centers, metric='euclidean')
+
+    # Find the minimum distance for each previous center to assign it to a new center
+    min_indices = np.argmin(distances, axis=1)
+
+    ls = [0,1,2,3]
+    # Prepare the list of matches
+    matches = dict(zip(min_indices,ls))
+
+    return matches
+
+def get_key_by_value(dictionary, target_value):
+    for key, value in dictionary.items():
+        if value == target_value:
+            return key
+    return None

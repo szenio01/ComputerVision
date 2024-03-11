@@ -127,9 +127,92 @@ def simulate(curr_time):
                 print("Warning: Matching failed for this frame. Skipping.")
 
 
+def simulate_previews_position(curr_time):
+    while curr_time<100:
+        if curr_time == 0:
+            print("OFFLINE PHASE")
+            positions, colors = set_voxel_positions(config['world_width'], config['world_height'],
+                                                    config['world_width'],
+                                                    curr_time)
+
+            # k means and labels for each voxel
+            labels_of, centers_of, voxel_positions_xz_of = cluster_voxel_positions(positions)
+
+            new_colors = []
+            for i in labels_of:
+                if i[0] == 0:
+                    new_colors.append([1, 0, 0])
+                elif i[0] == 1:
+                    new_colors.append([0, 1, 0])
+                elif i[0] == 2:
+                    new_colors.append([0, 0, 1])
+                elif i[0] == 3:
+                    new_colors.append([0, 1, 1])
+
+            curr_time += 5
+
+        else:
+
+            print("ONLINE PHASE")
+            # Process the current frame to re-cluster and generate new color models
+            positions, _ = set_voxel_positions(config['world_width'], config['world_height'], config['world_width'],
+                                               curr_time)
+            labels, centers, voxel_positions_xz = cluster_voxel_positions(positions)
+
+            matches = match_clusters_by_proximity(centers_of, centers)
+            print("centers_of", centers_of)
+            print("centers new", centers)
+            print(matches)
+            new_colors = []
+            labels_new = []
+            centers_new = []
+            for i in labels:
+                if i[0] == 0:
+                    labels_new.append([matches[0]])
+                if i[0] == 1:
+                    labels_new.append([matches[1]])
+                if i[0] == 2:
+                    labels_new.append([matches[2]])
+                if i[0] == 3:
+                    labels_new.append([matches[3]])
+
+            for i, c in enumerate(centers):
+                centers_new.append(centers[get_key_by_value(matches, i)])
+
+            for i in labels_new:
+                if i[0] == 0:
+                    new_colors.append([1, 0, 0])
+                elif i[0] == 1:
+                    new_colors.append([0, 1, 0])
+                elif i[0] == 2:
+                    new_colors.append([0, 0, 1])
+                elif i[0] == 3:
+                    new_colors.append([0, 1, 1])
+
+            # Check if clusters are close (stuck in a local minimum)
+            check_cluster_separation(centers, threshold=10.0)
+            too_close = check_cluster_separation(centers)
+            if too_close:
+                print("Some clusters are too close to each other.")
+            else:
+                print("Clusters are adequately separated.")
+            labels_of = labels_new
+            centers_of = centers_new
+            voxel_positions_xz_of = voxel_positions_xz
+            curr_time += 5
+            if matches is not None:
+                for online_id, offline_id in matches.items():
+                    # Get the 2D center for the matched cluster (assuming centers are 2D)
+                    new_center_2d = centers[online_id]
+                    # Append the center position to the trajectory for the corresponding person
+                    trajectories[offline_id].append(new_center_2d)
+            else:
+                # Handle the case where matches is None
+                print("Warning: Matching failed for this frame. Skipping.")
+
 # Open the video file
 
-simulate(0)
+simulate_previews_position(0)
 plt.figure(figsize=(10, 8))  # Optional: Specify the size of the plot
 for person_id, trajectory in trajectories.items():
     x_positions = [pos[0] for pos in trajectory]
