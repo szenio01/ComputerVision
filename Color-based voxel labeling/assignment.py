@@ -1,10 +1,14 @@
-#new version
+import os
+os.environ['OMP_NUM_THREADS'] = '1'
 import glm
 import random
 import numpy as np
 import cv2 as cv
 import matplotlib.pyplot as plt
 from scipy.optimize import linear_sum_assignment
+from sklearn.mixture import GaussianMixture
+from scipy.spatial.distance import cdist
+
 # global variables
 block_size = 1.0
 voxel_size = 60.0  # voxel every 3cm
@@ -307,6 +311,95 @@ def create_color_models(image, projected_points, labels, K):
     return color_models
 
 
+def extract_color_features(image, voxel_positions, num_components=3):
+    """
+    Extract color features from the image based on voxel positions and fit a GMM.
+
+    :param image: The image from which to extract color features (BGR format).
+    :param voxel_positions: List of voxel positions [(x1, y1), (x2, y2), ...].
+    :param num_components: Number of components (colors) in the GMM.
+    :return: GaussianMixture object representing the color model, or None if not enough data.
+    """
+    height, width, _ = image.shape
+    colors = np.array([image[min(max(int(y), 0), height-1), min(max(int(x), 0), width-1)] for x, y in voxel_positions])
+
+    # Ensure we use only unique colors to avoid issues with duplicate points
+    unique_colors = np.unique(colors, axis=0)
+
+    # If there are not enough unique samples to fit the GMM, return None
+    if unique_colors.shape[0] < num_components:
+        print(f"Not enough unique samples to fit a GMM for the given cluster. Required: {num_components}, but got: {unique_colors.shape[0]}.")
+        return None
+
+    # Fit a GMM with a number of components up to the number of unique color samples
+    n_components = min(num_components, unique_colors.shape[0])
+    gmm = GaussianMixture(n_components=n_components, covariance_type='full', random_state=0)
+    gmm.fit(unique_colors)
+    return gmm
+
+def assign_voxels_to_persons(image, voxel_positions, gmm_models):
+    """
+    Assign voxels to persons based on GMM models of their color distributions.
+
+    :param image: The image from which to extract color features (BGR format).
+    :param voxel_positions: List of voxel positions [(x1, y1), (x2, y2), ...].
+    :param gmm_models: List of GaussianMixture objects representing the color models for each person.
+    :return: List of person IDs assigned to each voxel.
+    """
+    assignments = []
+    for position in voxel_positions:
+        color = image[position[1], position[0]].reshape(1, -1)  # Reshape color to 2D array
+        log_likelihoods = [gmm.score_samples(color) for gmm in gmm_models]
+        assigned_person = np.argmax(log_likelihoods)
+        assignments.append(assigned_person)
+    return assignments
+
+
+def process_frame_for_color_models_GMM(frame_number, voxel_positions, labels, K, camera_indices=[0]):
+    """
+    Processes a specific frame to create GMM color models for each cluster (person) using selected camera(s).
+
+    Parameters:
+    - frame_number: The number of the frame to process.
+    - voxel_positions: A list of 3D voxel positions.
+    - labels: Cluster labels for each voxel.
+    - K: The number of clusters (people).
+    - camera_indices: List of indices of cameras to use.
+
+    Returns:
+    - gmm_color_models: A list of GMM color models for each cluster.
+    """
+    gmm_color_models = [None] * K  # Initialize GMM color models list
+
+    for camera_idx in camera_indices:
+        # Load the frame image from the selected camera
+        camera_path = f'./data/cam{camera_idx + 1}/video.avi'
+        cap = cv.VideoCapture(camera_path)
+        cap.set(cv.CAP_PROP_POS_FRAMES, frame_number)
+        ret, image = cap.read()
+        cap.release()
+
+        if not ret:
+            print(f"Failed to read frame {frame_number} from camera {camera_idx + 1}")
+            continue
+
+        # Project voxel positions to the 2D image plane
+        projected_points = project_voxels_to_image(voxel_positions, camera_idx)
+
+        # Iterate over each cluster to create a GMM color model
+        for k in range(K):
+            cluster_voxel_positions = [projected_points[idx] for idx, label in enumerate(labels) if label == k]
+
+            # Check if there are enough voxels to create a GMM
+            if len(cluster_voxel_positions) > 0:
+                gmm = extract_color_features(image, cluster_voxel_positions)
+                if gmm_color_models[k] is None:
+                    gmm_color_models[k] = gmm
+                else:
+                    pass  # Placeholder for potential combination logic
+
+    return gmm_color_models
+
 def process_frame_for_color_models(frame_number, voxel_positions, labels, K, camera_indices=[0]):
     """
     Processes a specific frame to create color models for each cluster (person) using selected camera(s).
@@ -426,6 +519,109 @@ def calculate_distance(model1, model2):
     # Average the distances
     avg_distance = distance_sum / (num_clusters * num_channels)
     return avg_distance
+
+
+def calculate_distance(gmm1, gmm2):
+    """
+    Calculate a simplified distance metric between two GMMs based on the Euclidean distance of their component means.
+
+    Parameters:
+    - gmm1, gmm2: GaussianMixture objects
+
+    Returns:
+    - distance: A scalar distance between gmm1 and gmm2
+    """
+    means1 = gmm1.means_
+    means2 = gmm2.means_
+
+    # Calculate the pairwise Euclidean distances between all pairs of means
+    distances = cdist(means1, means2, 'euclidean')
+
+    # Take the average of the minimum distances for each component in gmm1 to a component in gmm2
+    min_distances = np.min(distances, axis=1)
+    distance = np.mean(min_distances)
+
+    return distance
+
+
+def calculate_all_distances(online_models, offline_models):
+    """
+    Calculate the distance matrix between each pair of online and offline GMMs.
+
+    Parameters:
+    - online_models, offline_models: Lists of GaussianMixture objects
+
+    Returns:
+    - A dictionary mapping indices from online_models to indices in offline_models
+    """
+    num_online = len(online_models)
+    num_offline = len(offline_models)
+    distance_matrix = np.zeros((num_online, num_offline))
+
+    for i in range(num_online):
+        for j in range(num_offline):
+            distance_matrix[i, j] = calculate_distance(online_models[i], offline_models[j])
+
+    # Use linear_sum_assignment for optimal matching
+    row_ind, col_ind = linear_sum_assignment(distance_matrix)
+    return dict(zip(row_ind, col_ind))
+
+
+def calculate_distanceGMM(gmm1, gmm2):
+    """
+    Calculate a simplified distance metric between two GMMs based on the Euclidean distance of their component means.
+
+    Parameters:
+    - gmm1, gmm2: GaussianMixture objects
+
+    Returns:
+    - distance: A scalar distance between gmm1 and gmm2
+    """
+
+    if gmm1 is None or gmm2 is None:
+        print("One of the GMMs is None. Skipping distance calculation.")
+        return 1e6
+    means1 = gmm1.means_
+    means2 = gmm2.means_
+
+    # Calculate the pairwise Euclidean distances between all pairs of means
+    distances = cdist(means1, means2, 'euclidean')
+
+    # Take the average of the minimum distances for each component in gmm1 to a component in gmm2
+    min_distances = np.min(distances, axis=1)
+    distance = np.mean(min_distances)
+
+    return distance
+
+
+def calculate_all_distancesGMM(online_models, offline_models):
+    """
+    Calculate the distance matrix between each pair of online and offline GMMs and perform matching.
+
+    Parameters:
+    - online_models: List of GaussianMixture objects representing the online phase clusters.
+    - offline_models: List of GaussianMixture objects representing the offline phase clusters.
+
+    Returns:
+    - A dictionary mapping indices from online_models to indices in offline_models.
+    """
+    num_online = len(online_models)
+    num_offline = len(offline_models)
+    distance_matrix = np.full((num_online, num_offline), 1e6)  # Start with a large distance
+
+    for i in range(num_online):
+        for j in range(num_offline):
+            # Only compute the distance if both GMMs are not None
+            if online_models[i] is not None and offline_models[j] is not None:
+                distance_matrix[i, j] = calculate_distanceGMM(online_models[i], offline_models[j])
+
+    try:
+        row_ind, col_ind = linear_sum_assignment(distance_matrix)
+        return dict(zip(row_ind, col_ind))
+    except ValueError as e:
+        print("An error occurred with linear_sum_assignment:", e)
+        # Handle the error, such as by returning a default assignment or handling the problematic cases
+        return None
 
 
 def match_online_to_offline(online_models, offline_models):
