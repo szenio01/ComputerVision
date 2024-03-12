@@ -10,7 +10,7 @@ total_frames = 2700
 
 
 def simulate(curr_time):
-    while curr_time < 100:
+    while curr_time < 150:
         if curr_time == 0:
             print("OFFLINE PHASE")
             positions, colors = set_voxel_positions(config['world_width'], config['world_height'],
@@ -18,7 +18,7 @@ def simulate(curr_time):
                                                     0)
 
             # k means and labels for each voxel
-            labels, centers, voxel_positions_xz = cluster_voxel_positions(positions)
+            labels, centers, voxel_positions_xz, positions = cluster_voxel_positions(positions)
             # plot_clusters(voxel_positions_xz, labels, centers)
 
             # Filter positions based on the height to remove the trousers that don't have distinct colors
@@ -60,7 +60,8 @@ def simulate(curr_time):
             # Process the current frame to re-cluster and generate new color models
             positions, _ = set_voxel_positions(config['world_width'], config['world_height'], config['world_width'],
                                                curr_time)
-            labels, centers, voxel_positions_xz = cluster_voxel_positions(positions)
+
+            labels, centers, voxel_positions_xz, positions = cluster_voxel_positions(positions)
 
             # Filter positions based on height, similar to offline phase for consistency
             filtered_positions = [pos for pos in positions if pos[1] > 12 and pos[1] < 25]
@@ -68,7 +69,6 @@ def simulate(curr_time):
             filtered_indices = [i for i, pos in enumerate(positions) if pos[1] > 12 and pos[1] < 25]
             filtered_labels = [labels[i] for i in filtered_indices]
             filtered_labels = np.array(filtered_labels)
-            filtered_positions, filtered_labels = filter_ghost_voxels(filtered_positions, filtered_labels )
 
             color_models_online = process_frame_for_color_models_GMM(frame_number=curr_time,
                                                                      voxel_positions=filtered_positions,
@@ -115,7 +115,18 @@ def simulate(curr_time):
             else:
                 print("Clusters are adequately separated.")
 
-            curr_time += 5
+
+            filtered_positions, filtered_labels = filter_outlier_voxels(positions, labels)
+            new_colors = []
+            for i in filtered_labels:
+                if i == 0:
+                    new_colors.append([1, 0, 0])
+                elif i == 1:
+                    new_colors.append([0, 1, 0])
+                elif i == 2:
+                    new_colors.append([0, 0, 1])
+                elif i == 3:
+                    new_colors.append([0, 1, 1])
             if matches is not None:
                 for online_id, offline_id in matches.items():
                     # Get the 2D center for the matched cluster (assuming centers are 2D)
@@ -125,10 +136,11 @@ def simulate(curr_time):
             else:
                 # Handle the case where matches is None
                 print("Warning: Matching failed for this frame. Skipping.")
+            curr_time += 5
 
 
 def simulate_previews_position(curr_time):
-    while curr_time<100:
+    while curr_time<150:
         if curr_time == 0:
             print("OFFLINE PHASE")
             positions, colors = set_voxel_positions(config['world_width'], config['world_height'],
@@ -136,7 +148,7 @@ def simulate_previews_position(curr_time):
                                                     curr_time)
 
             # k means and labels for each voxel
-            labels_of, centers_of, voxel_positions_xz_of = cluster_voxel_positions(positions)
+            labels_of, centers_of, voxel_positions_xz_of , positions = cluster_voxel_positions(positions)
 
             new_colors = []
             for i in labels_of:
@@ -157,7 +169,7 @@ def simulate_previews_position(curr_time):
             # Process the current frame to re-cluster and generate new color models
             positions, _ = set_voxel_positions(config['world_width'], config['world_height'], config['world_width'],
                                                curr_time)
-            labels, centers, voxel_positions_xz = cluster_voxel_positions(positions)
+            labels, centers, voxel_positions_xz , positions = cluster_voxel_positions(positions)
 
             matches = match_clusters_by_proximity(centers_of, centers)
             print("centers_of", centers_of)
@@ -196,9 +208,8 @@ def simulate_previews_position(curr_time):
                 print("Some clusters are too close to each other.")
             else:
                 print("Clusters are adequately separated.")
-            labels_of = labels_new
+            # labels_of = labels_new
             centers_of = centers_new
-            voxel_positions_xz_of = voxel_positions_xz
             curr_time += 5
             if matches is not None:
                 for online_id, offline_id in matches.items():

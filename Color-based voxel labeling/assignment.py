@@ -190,35 +190,52 @@ def get_cam_rotation_matrices():
 
 
 def cluster_voxel_positions(voxel_locations):
-    """
-    Clusters voxel positions based on their (x, z) coordinates, ignoring the y coordinate.
-
-    Parameters:
-    - voxel_locations: A list of lists, where each inner list represents the (x, y, z) coordinates of a voxel.
-
-    Returns:
-    - labels: An array of labels indicating the cluster each voxel belongs to.
-    - centers: The coordinates of the cluster centers.
-    """
-    # Convert the list of voxel locations into a NumPy array
     voxel_array = np.array(voxel_locations)
 
     # Extract the (x, z) coordinates, ignoring the y coordinate
     voxel_positions_xz = np.float32(voxel_array[:, [0, 2]])
 
-    # Number of clusters (persons)
-    K = 4
-
-    # Define criteria = (type, max_iter, epsilon)
+    K = 4  # Number of clusters (persons)
     criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 100, 0.2)
-
-    # Number of attempts, to avoid local minima
     attempts = 10
 
-    # Apply K-means clustering
     _, labels, centers = cv.kmeans(voxel_positions_xz, K, None, criteria, attempts, cv.KMEANS_PP_CENTERS)
+    labels_flat = labels.flatten()
 
-    return labels, centers, voxel_positions_xz
+    valid_clusters = []
+    for i in range(K):
+        cluster_indices = np.where(labels_flat == i)[0]
+        cluster_voxels = voxel_array[cluster_indices]
+        voxel_count = len(cluster_voxels)
+        max_height = np.max(cluster_voxels[:, 1])
+        min_height = np.min(cluster_voxels[:, 1])
+        print(f"Cluster {i}: {voxel_count} voxels, Max Height: {max_height} , Min Height: {min_height}")
+
+        if voxel_count >= 600 and max_height > 25 and min_height<5:
+            valid_clusters.append(i)
+
+    mask = np.isin(labels_flat, valid_clusters)
+    filtered_voxel_positions_xz = voxel_positions_xz[mask]
+    filtered_voxel_array = voxel_array[mask]
+    filtered_labels = labels_flat[mask]
+
+    if len(valid_clusters) < K:
+        _, new_labels, new_centers = cv.kmeans(filtered_voxel_positions_xz, K, None, criteria,
+                                               attempts, cv.KMEANS_PP_CENTERS)
+        new_labels = new_labels.flatten()  # Ensure labels are flattened
+    else:
+        new_labels, new_centers = filtered_labels, centers[valid_clusters]
+
+    # Cast the returned types to ensure consistency
+    new_labels = new_labels.astype(int)  # Cast labels to int
+    new_centers = np.array(new_centers, dtype=np.float32)  # Ensure centers are float32
+    filtered_voxel_positions_xz = np.array(filtered_voxel_positions_xz,
+                                           dtype=np.float32)  # Ensure voxel positions are float32
+    filtered_voxel_array = np.array(filtered_voxel_array, dtype=np.float32)  # Ensure voxel array is float32
+
+    new_labels = new_labels.reshape(-1, 1)
+
+    return new_labels, new_centers, filtered_voxel_positions_xz, filtered_voxel_array
 
 def compute_distance_threshold(filtered_positions, filtered_labels):
     distances = []
@@ -241,7 +258,7 @@ def compute_distance_threshold(filtered_positions, filtered_labels):
     threshold = np.mean(distances) + 2 * np.std(distances)
     return threshold
 
-def filter_ghost_voxels(filtered_positions, filtered_labels):
+def filter_outlier_voxels(filtered_positions, filtered_labels):
     new_positions = []
     new_labels = []
 
@@ -743,15 +760,37 @@ def match_clusters_by_proximity(prev_centers, new_centers):
     - matches: A list of tuples, where each tuple contains (prev_cluster_index, new_cluster_index)
                indicating the matching of new cluster centers to previous ones.
     """
-    # Calculate all pairwise Euclidean distances between previous and new centers
+    # # Calculate all pairwise Euclidean distances between previous and new centers
+    # distances = cdist(prev_centers, new_centers, metric='euclidean')
+    #
+    # # Find the minimum distance for each previous center to assign it to a new center
+    # min_indices = np.argmin(distances, axis=1)
+    # print(min_indices)
+    # ls = [0,1,2,3]
+    # # Prepare the list of matches
+    # matches = dict(zip(min_indices,ls))
+    #
+    # return matches
     distances = cdist(prev_centers, new_centers, metric='euclidean')
 
-    # Find the minimum distance for each previous center to assign it to a new center
-    min_indices = np.argmin(distances, axis=1)
+    # Generate all possible matches and their distances
+    possible_matches = np.array(
+        [(i, j, distances[i, j]) for i in range(len(prev_centers)) for j in range(len(new_centers))])
 
-    ls = [0,1,2,3]
-    # Prepare the list of matches
-    matches = dict(zip(min_indices,ls))
+    # Sort possible matches by distance
+    sorted_matches = possible_matches[possible_matches[:, 2].argsort()]
+
+    matches = {}
+    used_prev_centers = set()
+    used_new_centers = set()
+
+    # Iterate through sorted possible matches and assign if not already used
+    for prev_center_idx, new_center_idx, _ in sorted_matches:
+        if prev_center_idx not in used_prev_centers and new_center_idx not in used_new_centers:
+            # Swap the roles here: keys are new_center indices, values are prev_center indices
+            matches[int(new_center_idx)] = int(prev_center_idx)
+            used_prev_centers.add(prev_center_idx)
+            used_new_centers.add(new_center_idx)
 
     return matches
 
@@ -790,3 +829,20 @@ def moving_average_smoothing(trajectory, window_size=5):
         smoothed_trajectory.append((avg_x, avg_y))
 
     return smoothed_trajectory
+
+def load_voxel_data(file_path):
+    voxel_data = {}
+    current_frame = None
+    with open(file_path, 'r') as file:
+        for line in file:
+            line = line.strip()
+            if line.startswith("Frame:"):
+                # Extract the frame number from the line
+                frame_info = line.split()
+                current_frame = int(frame_info[1].rstrip(','))  # Assuming the line format is "Frame: <number>,"
+                voxel_data[current_frame] = []
+            else:
+                # Assuming each line contains voxel coordinates in the format: [x, y, z]
+                voxel = eval(line)  # Convert the string representation of the list into an actual list
+                voxel_data[current_frame].append(voxel)
+    return voxel_data
