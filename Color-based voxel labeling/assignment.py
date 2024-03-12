@@ -760,3 +760,33 @@ def get_key_by_value(dictionary, target_value):
         if value == target_value:
             return key
     return None
+
+
+import numpy as np
+
+
+def moving_average_smoothing(trajectory, window_size=5):
+    """
+    Smooths the trajectory using the moving average method.
+
+    Parameters:
+    - trajectory: List of 2D positions [(x1, y1), (x2, y2), ...]
+    - window_size: The number of samples to include in the average
+
+    Returns:
+    - smoothed_trajectory: List of smoothed 2D positions
+    """
+    trajectory_array = np.array(trajectory)
+    smoothed_trajectory = []
+
+    # Padding the trajectory array for handling the edges
+    padded_trajectory = np.pad(trajectory_array, ((window_size // 2, window_size // 2), (0, 0)), mode='edge')
+
+    for i in range(len(trajectory)):
+        # Compute the moving average
+        window = padded_trajectory[i:i + window_size]
+        avg_x = np.mean(window[:, 0])
+        avg_y = np.mean(window[:, 1])
+        smoothed_trajectory.append((avg_x, avg_y))
+
+    return smoothed_trajectory

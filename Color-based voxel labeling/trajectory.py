@@ -212,7 +212,7 @@ def simulate_previews_position(curr_time):
 
 # Open the video file
 
-simulate_previews_position(0)
+simulate(0)
 plt.figure(figsize=(10, 8))  # Optional: Specify the size of the plot
 for person_id, trajectory in trajectories.items():
     x_positions = [pos[0] for pos in trajectory]
@@ -224,4 +224,38 @@ plt.xlabel('X position')
 plt.ylabel('Y position')
 plt.title('2D positions of each person over time')
 plt.grid(True)
+plt.show()
+# Assuming moving_average_smoothing function is defined as before
+
+fig, axes = plt.subplots(1, 2, figsize=(20, 8))  # 1 row, 2 columns subplot
+
+# Plot original trajectories on the first subplot
+axes[0].set_title('Original Trajectories')
+axes[0].set_xlabel('X position')
+axes[0].set_ylabel('Y position')
+axes[0].grid(True)
+
+for person_id, trajectory in trajectories.items():
+    x_positions = [pos[0] for pos in trajectory]
+    y_positions = [pos[1] for pos in trajectory]
+    axes[0].plot(x_positions, y_positions, 'o-', label=f'Person {person_id}')
+
+axes[0].legend()
+
+# Plot smoothed trajectories on the second subplot
+axes[1].set_title('Smoothed Trajectories')
+axes[1].set_xlabel('X position')
+axes[1].set_ylabel('Y position')
+axes[1].grid(True)
+
+for person_id, trajectory in trajectories.items():
+    # Apply smoothing
+    smoothed_trajectory = moving_average_smoothing(trajectory, window_size=5)
+    smoothed_x_positions = [pos[0] for pos in smoothed_trajectory]
+    smoothed_y_positions = [pos[1] for pos in smoothed_trajectory]
+    axes[1].plot(smoothed_x_positions, smoothed_y_positions, 'o-', label=f'Person {person_id} Smoothed')
+
+axes[1].legend()
+
+plt.tight_layout()  # Adjust the layout to make room for the legend and titles
 plt.show()
